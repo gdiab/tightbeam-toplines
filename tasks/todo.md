@@ -15,7 +15,7 @@
 
 - [ ] PO reviews `docs/spec.md`; findings as attests; edits as a PR
 - [ ] PO verifies ledger column names read-only and corrects `docs/data-contract.md`
-- [ ] PO answers or escalates the three open questions
+- [x] The three original open questions are resolved and homed (decisions.md D15-D17; spec-correction rulings D18)
 - [ ] PO staffs: coder(s), cross-family reviewer
 
 ## Phase 2: build

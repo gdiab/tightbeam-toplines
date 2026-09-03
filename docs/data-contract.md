@@ -16,11 +16,14 @@ from "zero".
     "dbBytes": 516587520,
     "walBytes": 4198312
   },
-  "parity": {                           // merged from parity.json when present, else null
-    "ranAt": 1788339600000,
-    "ok": true,
-    "checked": 17,
-    "firstMismatch": null               // or "wi_8d658b1e: quiet 1810s vs cli 1620s"
+  "parity": {                           // merged from parity.json when present; the whole object is null until the first parity run
+    "ranAt": 1788339600000,             // parity run wall clock; ALSO the stamp on coverageBasis/edgeBasis (Scope 6)
+    "outcome": "ok",                    // exactly one of "ok" | "mismatch" | "inconclusive"
+    "checked": 17,                      // open items compared this run
+    "firstMismatch": null,              // outcome="mismatch": first mismatch only, e.g. "wi_8d658b1e: quiet 1810s vs cli 1620s" | stage; else null
+    "changingInput": null,              // outcome="inconclusive": the compared input row that changed between the CLI start and the generator snapshot; else null
+    "coverageBasis": "…",               // copied VERBATIM from the CLI response's coverage.basis; the generator never synthesizes it; null until first run
+    "edgeBasis": "…"                    // copied VERBATIM from the CLI response's edgeBasis; the generator never synthesizes it; null until first run
   },
   "org": {
     "sessions": {
@@ -55,7 +58,7 @@ from "zero".
                                         // RECON: correct — wakes also has a direct work_item_id column
                                         // but it is unpopulated (0 of 17 pending rows), so assignmentId
                                         // routing is the right source; else null.
-        "prompt": "STALL PATROL CONTINUATION: …"   // wakes.prompt, first 140 characters (D17)
+        "prompt": "STALL PATROL CONTINUATION: …"   // wakes.prompt, first 140 Unicode code points (D17)
       }
     ],
     "wakesPending": 7
@@ -103,13 +106,19 @@ from "zero".
                                         // parity check expects an exact match. ATC's separate git-derived 'merged'
                                         // green ring is NOT a stage input and is not emitted by TopLines. No
                                         // 'ready-to-merge' verdict exists; rung 5 = completion + reviewed-clean
-                                        // (review not stale) + no open assignment.
+                                        // (review not stale) + no open assignment. Evidence and the 'no open
+                                        // assignment' test read ONLY assignments whose direct workItemId is this
+                                        // item (deployed ev_by L248-251 / holders_by L246-247), NOT the
+                                        // reviewsAssignmentId-chain membership Quiet/Running use. Always an
+                                        // integer 0..6 for every emitted item; 0 = no qualifying evidence, never null.
       "holders": [                      // sessions holding an open card, in card order
         {
           "sessionKey": "agent:product-owner:pi-harness s_751dc31a",
           "short": "s_751dc31a",
           "name": "PO — Pi harness",
-          "kind": "po",
+          "kind": "coder",               // deployed kind_of("po — pi harness") has no 'product owner' substring -> coder;
+                                         // the session is spawned (spawnedBy set) so the coder->po upgrade does NOT apply.
+                                         // This matches ATC's live data.json — the abbreviated "PO —" name does not classify as po.
           "harness": "codex",
           "model": "gpt-5.6-sol"
         }
@@ -128,8 +137,12 @@ from "zero".
   default for anyone reading it raw.
 - `generatedAt` is the wall clock at the start of the pass, so a 90 s stale
   test on the page measures the watcher, not the generator.
-- `stage` is `null` when the item is closed or when ATC's ladder cannot be
-  evaluated (missing attest rows), never guessed.
+- `stage` is always an integer 0..6 for every emitted item (open, iceboxed,
+  failed); `0` means no rung's evidence qualifies — it is never `null` and never
+  guessed. Closed items (which the deployed ladder rates 6) are omitted from
+  output entirely. A required table or column missing from the ledger is a
+  generator-wide non-zero exit that preserves the last good page (Acceptance 6),
+  not a per-item `null`.
 - `holders[].kind` uses the deployed ATC vocabulary — exactly seven kinds:
   `main`, `po`, `patrol`, `orch`, `coder`, `rev`, `spec` (no `recon`, no
   `agent`). Derivation is ported verbatim from the deployed generator

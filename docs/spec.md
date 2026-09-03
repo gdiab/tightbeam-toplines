@@ -190,11 +190,20 @@ disagree, the authority wins and this Term is corrected to it.
   them expecting an exact match: a genuine mismatch warns, and a row that changed
   between the CLI start and the generator snapshot is `inconclusive`, not a
   mismatch. No `ready-to-merge` verdict exists in the ledger today, and no open
-  item currently satisfies rung 5 (live stages are 1, 4 and 6), but rung 5 is
-  reachable via `completion` + `reviewed-clean`. Closed items are omitted from
-  `toplines.json` (`docs/data-contract.md`), so rung 6 does not appear in output;
-  `stage` is `null` for an item whose ladder cannot be evaluated (missing rows),
-  never guessed.
+  item currently satisfies rung 5, but rung 5 is reachable via `completion` +
+  `reviewed-clean`. Stage evidence is read only from assignments whose direct
+  `workItemId` is this item — the deployed `ev_by` query
+  (`/usr/local/bin/tb-weather-gen` lines 248-251) — and the "no open assignment"
+  test likewise counts only direct-`workItemId` open assignments (deployed
+  `holders_by`, lines 246-247). Neither uses the `reviewsAssignmentId`-chain
+  Assignment membership that Quiet, Running and Turn counts use, because the
+  deployed authority does not (its `ev_by` filters `assignments.workItemId`
+  directly, ignoring null-`workItemId` review assignments). `stage` is always an
+  integer 0..6 for every emitted item: `0` means no rung's evidence qualifies —
+  it is never `null`. A required table or column missing from the ledger is a
+  generator-wide non-zero exit that preserves the last good page (Assumption 4,
+  Acceptance 6), not a per-item `null`. Closed items are omitted from
+  `toplines.json` (`docs/data-contract.md`), so rung 6 does not appear in output.
 - **Holder kind.** Ported verbatim from the deployed ATC generator
   `/usr/local/bin/tb-weather-gen` `kind_of(name)`, lines 48-57 (D-a, ruled
   att_5ecfb687 + George dr_9daadbe0; `reference/atc-derivations.md` §2 is the
@@ -228,9 +237,11 @@ Every line demonstrated on sirius, command and output on the card.
    The default open view's item-id set matches the response's open item set
    exactly. For every open item, quiet, card counts, attest totals and kinds,
    and active flags match within the stated tolerance. Holder session keys and
-   their name, archetype, harness and model match one read-only ledger query;
-   those fields are not claimed to come from the CLI response. Save the real
-   CLI response as the parity negative-test input for Acceptance 9.
+   their name, harness and model match one read-only ledger query; the holder
+   `kind` matches the deployed display-name derivation (Terms → Holder kind)
+   applied to that session's display name. These fields are not claimed to come
+   from the CLI response. Save the real CLI response as the parity negative-test
+   input for Acceptance 9.
 3. Latency: file a progress attest on a test card, time until the row's quiet
    resets on screen. Under 5 s, three trials, including one commit made during
    the watcher's cooldown.
@@ -283,7 +294,7 @@ Every line demonstrated on sirius, command and output on the card.
 
 None open. Every question this spec raised is ruled; no hole remains.
 
-Resolved (George `dr_9daadbe0`, superseding the earlier `dr_3527028b` escalation):
+Resolved (George `dr_9daadbe0`):
 - **D-a** — Holder kind is ported verbatim from the deployed ATC generator's
   display-name `kind_of` (`/usr/local/bin/tb-weather-gen` lines 48-57). Display-name
   inference is the ruled approach for every kind; the `patrol` session classifies
@@ -304,8 +315,10 @@ Resolved earlier this pass (PO rulings att_5ecfb687):
 - **D-c** — the Stage ladder STRUCTURE matches the deployed ATC; the simplification
   is that TopLines omits ATC's separate git-derived `merged` field, not the stage.
 
-The original three questions are resolved: coverage provenance is copied from
-the timestamped daily parity response; iceboxed items are flat; wake prompts
+The original three questions are resolved and homed as dated rulings in
+`docs/decisions.md`: **D15** coverage provenance is copied verbatim from the
+timestamped daily parity response (the generator never synthesizes it); **D16**
+iceboxed items are a flat list (no quiet-band dividers); **D17** wake prompts
 keep the first 140 Unicode code points in v1.
 
 Integration note (`dr_b1b03664`): no session on sirius currently holds GitHub

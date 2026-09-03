@@ -8,11 +8,13 @@ file the work.
 ## What exists
 
 - `docs/spec.md`: the contract. Problem, hard constraints, numbered scope,
-  definitions, acceptance criteria, fixtures, three open questions for you.
+  definitions, acceptance criteria, fixtures. Its open questions are resolved
+  (see spec.md Open Questions and decisions.md D15-D18); none remain for you.
 - `docs/architecture.md`: components, data flow, latency budget, failure
   modes, and why each alternative was rejected.
-- `docs/decisions.md`: fourteen dated decisions. D3, D4, D6, D7, D10, D14 are
-  George's rulings; the rest were recommended and accepted.
+- `docs/decisions.md`: eighteen dated decisions (through D18). D3, D4, D6, D7,
+  D10, D14 and the D-a/D-b/D-c/D-d rulings recorded in D18 are George's; the
+  rest were recommended and accepted.
 - `docs/design.md`, `docs/data-contract.md`, `docs/runbook.md` (draft).
 - `mock/toplines.html`: the reviewed mock, rendered from a real snapshot.
   George has approved its appearance. Open it in a browser.
@@ -28,8 +30,9 @@ file the work.
    cannot meet from the ledger, and anything that contradicts a hard
    constraint. File findings as attests on your card; propose edits as a PR to
    `docs/spec.md` rather than editing on `main`.
-2. **Answer the three open questions** in `docs/spec.md`, or escalate them to
-   George with a recommendation if they need his ruling.
+2. **Open questions: already resolved.** The spec's three original open
+   questions were answered and homed as decisions D15-D17, and the
+   spec-correction rulings as D18; nothing here awaits your ruling.
 3. **Verify the ledger definitions against the live database, read-only.**
    Column names in `docs/data-contract.md` are stated from the CLI's output
    shape and ATC's queries, not from a schema dump. Confirm them with
@@ -79,7 +82,7 @@ tightbeam spawn --display "PO — TopLines" --name po:toplines \
 
 # 3. open the obligation and wake the PO, threaded to the item
 tightbeam dispatch --to <po-sessionKey> \
-  --subject "Re-review the TopLines spec, answer its open questions, then staff it" \
+  --subject "Re-review the TopLines spec (its open questions are resolved), then staff it" \
   --brief "Repo gdiab/tightbeam-toplines. Start with docs/po-brief.md. Read-only ledger, never poll the CLI, never touch ATC. First attest: your review findings on docs/spec.md, before any hiring." \
   --work-item <wi_id> --as-user george
 ```

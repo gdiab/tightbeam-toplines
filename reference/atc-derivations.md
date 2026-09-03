@@ -71,8 +71,18 @@ wins:
 "Review not stale" is the deployed predicate at lines 295-303: the newest
 `reviewed-clean` verdict is stale when a `tests-passed` verdict landed more than
 300 s (300_000 ms) after it — new code tested after the review, so the review no
-longer covers the work. Attest kinds and verdict kinds are read per item across
-all its assignments (the `ev_by` query, lines 248-249).
+longer covers the work.
+
+Stage evidence comes ONLY from assignment rows whose direct `workItemId` is the
+item: the deployed `ev_by` query (lines 248-251) joins `attests` to `assignments`
+and filters `WHERE a.workItemId IN (...)`. It selects `reviewsAssignmentId` only
+to tell producer commit-refs from reviewer refs for the separate merged/code
+check (lines 266-278) — NOT for membership. So the ladder ignores null-`workItemId`
+review assignments and does NOT follow the `reviewsAssignmentId` chain that the
+CLI-mirrored Quiet/Running/Turn terms use. The "no open assignment" test in rungs
+5 and 6 likewise reads only direct-`workItemId` open assignments (`holders_by`,
+lines 246-247). `stage` is always 0..6; the block initialises `stage = 0`
+(line 287), so an item with no qualifying evidence is `0`, never null.
 
 Git ancestry does NOT enter the stage. The deployed stage block reads only
 attest kinds, verdict kinds and item state; it never consults git. The only
@@ -80,17 +90,16 @@ git-derived signal in the deployed generator is a SEPARATE per-item `merged`
 boolean (the green ring, line 332, from `merged_in_branch`), which is `null`
 whenever no repo is configured — as it is on the deployed instance today (every
 `merged` in `/opt/tb-atc/web/data.json` is `null`). TopLines does not probe git,
-so it OMITS the `merged` field entirely. Because stage needs no git, TopLines'
-stage EQUALS the deployed ATC's stage for the same ledger, and the daily parity
-check (`docs/spec.md` Terms → Stage, Scope 6) compares the two expecting an
-exact match: a genuine stage mismatch warns; a row that changed between the CLI
-start and the generator snapshot is `inconclusive`, not a mismatch. (The
-abandoned-fork note that "ATC rates 5 by ancestry, TopLines reads 4" described
-that fork, not the deployed authority, and is dropped.)
+so it OMITS the `merged` field entirely. Because stage needs no git and reads the
+same direct-`workItemId` rows, TopLines' stage EQUALS the deployed ATC's stage
+for the same ledger, and the daily parity check (`docs/spec.md` Terms → Stage,
+Scope 6) compares the two expecting an exact match: a genuine stage mismatch
+warns; a row that changed between the CLI start and the generator snapshot is
+`inconclusive`, not a mismatch.
 
 No `ready-to-merge` verdict exists in the ledger; rung 5 is reached by
-`completion` + `reviewed-clean`, not by any single verdict, and in today's
-snapshot no open item satisfies it (live stages are 1, 4 and 6).
+`completion` + `reviewed-clean`, not by any single verdict, and no open item
+satisfies it in the current snapshot.
 
 ## 4. Queries worth reading before writing your own
 
@@ -105,7 +114,7 @@ All in the deployed `/usr/local/bin/tb-weather-gen`:
 | pending wakes due | 206 |
 | work items in scope | 225 |
 | holders per item from open assignments | 246-247 |
-| attest evidence per item (kind, verdictKind, commitRefs, ts) | 248-249 |
+| attest evidence per item (direct workItemId only; kind, verdictKind, commitRefs, ts) | 248-251 |
 | last close per item | 252 |
 | pending wakes joined to items | 255-256 |
 

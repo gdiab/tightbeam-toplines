@@ -93,3 +93,39 @@ explicit transactions"; that was too strict. The rule is short, never long.
 
 Ruled by George. The repo and these documents are handed to a new Tightbeam
 product owner for re-review, then staffed. `po-brief.md` is the handoff.
+
+## D15 · 2026-09-02 · Coverage provenance is copied, never synthesized
+
+Resolves the first original open question. The footer's `coverageBasis` and
+`edgeBasis` are copied verbatim from the daily parity check's one
+`tightbeam toplines` response and stamped with the parity run time (`ranAt`).
+The generator never computes or estimates either value; both are `null` until
+the first parity run. See `docs/spec.md` Scope 6 and `docs/data-contract.md`
+(`parity` object).
+
+## D16 · 2026-09-02 · Iceboxed items are a flat list
+
+Resolves the second original open question. Open items get quiet-band dividers;
+iceboxed items are shown as a single flat list with no dividers. See
+`docs/spec.md` Scope 3.
+
+## D17 · 2026-09-02 · Wake prompts keep 140 code points
+
+Resolves the third original open question. A pending wake's `prompt` carries the
+first 140 Unicode code points of `wakes.prompt` in v1; the rest is dropped. See
+`docs/data-contract.md` (`org.wakes[].prompt`).
+
+## D18 · 2026-09-03 · Spec-correction rulings — CLI and deployed-ATC authority
+
+Ruled by George (`dr_9daadbe0`) and the PO (`att_5ecfb687`), homing the
+spec-correction pass. (D-d) Quiet, Running and wake-queued mirror the CLI's
+algorithm exactly; Quiet reduces to `lastProgressAt ?? createdAt` because
+`work_items` has no `startedAt` column. (D-a) Holder kind is ported verbatim
+from the deployed ATC generator's display-name `kind_of`
+(`/usr/local/bin/tb-weather-gen` lines 48-57); display-name inference is the
+ruled approach, the vocabulary is the deployed seven kinds. (D-b/D-c) The stage
+ladder is ported verbatim from the deployed binary (lines 282-306); the stage
+never consults git, so TopLines' stage matches the deployed ATC exactly, and
+TopLines omits ATC's separate git-derived `merged` field. The abandoned commit
+`181ca45` and the Desk-layer fork checkout are not authority. See `docs/spec.md`
+Terms → Stage / Holder kind and `reference/atc-derivations.md`.
