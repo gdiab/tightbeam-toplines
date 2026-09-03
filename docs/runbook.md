@@ -25,6 +25,15 @@ Everything here runs as `gd`. Nothing needs root.
 Ledger: `/home/gd/.tightbeam/state.db`, opened `file:...?mode=ro` everywhere.
 Port: 127.0.0.1:8898. Hostname: `https://toplines.tailf064dc.ts.net/`.
 
+## Landing this to `main` (`dr_b1b03664`)
+
+No session on sirius currently holds GitHub write: `gh` is unauthenticated and
+the origin is `https`. The PR is prepared locally on its branch; the final push
+and merge to `main` are performed by a designated write-capable session (the
+operator/ops session), NOT by the coders or the orchestrator. The Install step
+below clones `main` over `https`, so it can only run after that designated
+session has merged.
+
 ## Install
 
 ```sh

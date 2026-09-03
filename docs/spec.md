@@ -171,40 +171,48 @@ disagree, the authority wins and this Term is corrected to it.
   `live` counts those started and not ended. An item with no such turns is `0`,
   a real zero. Turn counts are a display number and are not in the parity
   comparison.
-- **Stage.** The evidence ladder mirrors the deployed (parity-target) ATC's
-  stages (D-c, ruled att_5ecfb687), evaluated top-down (the highest satisfied
-  rung wins): 0 none; 1 a `progress` attest; 2 a `tests-passed` verdict; 3 a
-  `completion` attest; 4 a `reviewed-clean`, `spec-reviewed`, or `verified`
-  verdict; 5 merge-ready (completion plus a clean review, no open assignment);
-  6 a closed item with no open assignment. TopLines does not probe git
-  ancestry, so an item ATC rates 5 by ancestry reads 4 here and the daily
-  parity check flags the difference (this simplification is expected, D-c). No
-  `ready-to-merge` verdict exists in the ledger today, so rung 5 is effectively
-  unreached in v1. Closed items are omitted from `toplines.json`
-  (`docs/data-contract.md`), so rung 6 does not appear in output; `stage` is
-  `null` for an item whose ladder cannot be evaluated (missing rows), never
-  guessed.
-  **[HOLE — D-b: authoritative ATC source + reachable pin, pending George
-  dr_3527028b (deadline 48h from 2026-09-02).** The ladder STRUCTURE above is
-  ruled. Its SOURCE is not: `reference/atc-derivations.md` pins
-  `tb-weather-gen@181ca45`, which is dead/unfetchable, and the only checkout
-  (`~/github/tightbeam-atc@a7d14e6`) is a Desk-layer fork with no matching stage
-  block. Build to the structure now; do not harden rung 5's exact predicate
-  until George pins the authoritative ATC and the pin is reconciled here.]
-- **Holder kind.** `main` comes from `sessions.kind = 'main'` (there is no
-  durable `main` role row; the main session's archetype is `default`).
-  Otherwise map `sessions.archetype` — product-owner→`po`, orchestrator→`orch`,
-  coder→`coder`, reviewer→`rev`, spec-writer→`spec`, recon→`recon`; an unknown
-  archetype is `agent`. Never infer kind from a display name.
-  **[HOLE — D-a: `patrol` source, pending George dr_3527028b (deadline 48h from
-  2026-09-02).** The deployed ATC emits `patrol`, but it is not derivable from
-  archetype+roles: the sole patrol session has archetype `orchestrator` (handle
-  `orchestrator:stall-patrol`) and its only distinguishing signal is the display
-  name, which this spec forbids. George decides between accepting display-name
-  inference for `patrol` as a single documented exception, or dropping `patrol`
-  from the v1 vocabulary and classifying that session as `orch`. PO recommends
-  the documented exception. Until he rules, `patrol` is unresolved and must not
-  be guessed; the `patrol` filter, token and vocabulary entry stay pending.]
+- **Stage.** The evidence ladder is ported verbatim from the deployed
+  (parity-target) ATC generator `/usr/local/bin/tb-weather-gen`, lines 282-306
+  (D-b/D-c, ruled att_5ecfb687 + George dr_9daadbe0; `reference/atc-derivations.md`
+  §3 is the source pin). Evaluate top-down; the highest satisfied rung wins: 0
+  none; 1 a `progress` attest; 2 a `tests-passed` verdict; 3 a `completion`
+  attest; 4 a `reviewed-clean`, `spec-reviewed`, or `verified` verdict; 5
+  merge-ready — a `completion` attest AND a `reviewed-clean` verdict, the review
+  not stale, and no open assignment; 6 a closed item with no open assignment. A
+  `reviewed-clean` verdict is stale when a `tests-passed` verdict landed more than
+  300 s after it (new code tested after the review), which drops the item back to
+  4; this is the deployed predicate (lines 295-303). The stage reads only attest
+  kinds, verdict kinds and item state — it does NOT consult git ancestry, in the
+  deployed ATC or here. ATC's only git-derived signal is a separate `merged`
+  green-ring boolean (deployed line 332); TopLines does not probe git and omits
+  that field. Because the stage needs no git, TopLines' stage EQUALS the deployed
+  ATC's stage for the same ledger, and the daily parity check (Scope 6) compares
+  them expecting an exact match: a genuine mismatch warns, and a row that changed
+  between the CLI start and the generator snapshot is `inconclusive`, not a
+  mismatch. No `ready-to-merge` verdict exists in the ledger today, and no open
+  item currently satisfies rung 5 (live stages are 1, 4 and 6), but rung 5 is
+  reachable via `completion` + `reviewed-clean`. Closed items are omitted from
+  `toplines.json` (`docs/data-contract.md`), so rung 6 does not appear in output;
+  `stage` is `null` for an item whose ladder cannot be evaluated (missing rows),
+  never guessed.
+- **Holder kind.** Ported verbatim from the deployed ATC generator
+  `/usr/local/bin/tb-weather-gen` `kind_of(name)`, lines 48-57 (D-a, ruled
+  att_5ecfb687 + George dr_9daadbe0; `reference/atc-derivations.md` §2 is the
+  source pin). Kind is inferred from the session DISPLAY NAME, lower-cased, first
+  match wins: `main` when the name is exactly `main`; `po` when it contains
+  `product owner`; `patrol` when it contains `patrol` or `watchdog`; `orch` when
+  it contains `orchestrator`; `coder` when it contains `coder`; `rev` when it
+  contains `review`; `spec` when it contains `spec`; otherwise `coder`. Then one
+  post-step (deployed lines 164-168): a session that classified as `coder` but
+  has no spawner (`sessions.spawnedBy` null) is re-labelled `po`. The vocabulary
+  is exactly these seven kinds — `main`, `po`, `patrol`, `orch`, `coder`, `rev`,
+  `spec` — with `coder` the default; there is no `recon` or `agent` kind, and
+  nothing reads `sessions.kind` (the deployed sessions query selects no such
+  column). Display-name inference is therefore the ruled approach for every kind,
+  `patrol` included: the sole patrol session (display name
+  `Stall Patrol - coordination flow`, archetype `orchestrator`) classifies as
+  `patrol` by its name. The earlier archetype-based derivation and the "never
+  infer kind from a display name" prohibition are superseded.
 - **Needs you.** Only rows in `decision_requests` with `kind='operator'` and
   `status='open'` are needs-you rows. The per-item count joins those rows
   through Assignment membership; it does not copy the CLI's broader count of
@@ -273,40 +281,39 @@ Every line demonstrated on sirius, command and output on the card.
 
 ## Open questions
 
-Both remaining questions are escalated to George as **decision request
-`dr_3527028b`** (deadline 48h from 2026-09-02). Their spec homes above are marked
-`[HOLE — D-a]` and `[HOLE — D-b]`. Both are BLOCKING for the marked scope only:
-holder-kind `patrol` (D-a) and the Stage source pin (D-b) wait for the ruling; the
-rest of this spec is buildable now. When George rules, the resolutions fold into
-the same spec-correction PR — no second PR.
+None open. Every question this spec raised is ruled; no hole remains.
 
-1. **[HOLE — D-a] Blocking (patrol scope only) — patrol classification.** The
-   deployed ATC emits `patrol`, but it is not derivable from archetype+roles: the
-   sole patrol session has archetype `orchestrator` and its only signal is the
-   display name, which this spec forbids. George decides: accept display-name
-   inference for `patrol` as a single documented exception, or drop `patrol` from
-   the v1 vocabulary, filters and tokens and classify that session as `orch`. PO
-   recommends the documented exception. See Terms → Holder kind.
-2. **[HOLE — D-b] Blocking (stage source only) — ATC source pin.**
-   `reference/atc-derivations.md` pins `tb-weather-gen@181ca45`, which is
-   dead/unfetchable; the only checkout (`~/github/tightbeam-atc@a7d14e6`) is a
-   Desk-layer fork with no matching stage block. George pins a reachable,
-   authoritative ATC source; the Stage ladder STRUCTURE is already ruled (D-c) and
-   the pin fixes rung 5's exact predicate and the source attribution. PO
-   recommends the deployed `/usr/local/bin/tb-weather-gen` + its `data.json` as
-   the port and parity authority. See Terms → Stage and
-   `reference/atc-derivations.md`.
+Resolved (George `dr_9daadbe0`, superseding the earlier `dr_3527028b` escalation):
+- **D-a** — Holder kind is ported verbatim from the deployed ATC generator's
+  display-name `kind_of` (`/usr/local/bin/tb-weather-gen` lines 48-57). Display-name
+  inference is the ruled approach for every kind; the `patrol` session classifies
+  as `patrol` by its name, and the vocabulary is the deployed seven kinds (no
+  `recon`, no `agent`). See Terms → Holder kind and `reference/atc-derivations.md` §2.
+- **D-b** — The authoritative ATC source is the DEPLOYED binary
+  `/usr/local/bin/tb-weather-gen` (+ `/opt/tb-atc/web/data.json` for stage parity).
+  The abandoned commit `181ca45` and the Desk-layer fork checkout are not
+  authority. The Stage ladder is ported verbatim from deployed lines 282-306,
+  including rung 5's exact predicate; the stage never consults git, so TopLines'
+  stage matches the deployed ATC's exactly. See Terms → Stage and
+  `reference/atc-derivations.md` §3.
 
-Resolved this pass (PO rulings att_5ecfb687):
+Resolved earlier this pass (PO rulings att_5ecfb687):
 - **D-d** — Quiet, Running and wake-queued match the CLI's algorithm exactly;
   Quiet reduces to `lastProgressAt ?? createdAt` because `work_items` has no
   `startedAt` column. See Terms.
-- **D-c** — the Stage ladder STRUCTURE matches the deployed ATC; the git-ancestry
-  simplification is documented. Only its source pin (D-b) stays open.
+- **D-c** — the Stage ladder STRUCTURE matches the deployed ATC; the simplification
+  is that TopLines omits ATC's separate git-derived `merged` field, not the stage.
 
 The original three questions are resolved: coverage provenance is copied from
 the timestamped daily parity response; iceboxed items are flat; wake prompts
 keep the first 140 Unicode code points in v1.
+
+Integration note (`dr_b1b03664`): no session on sirius currently holds GitHub
+write (gh unauthenticated, https origin). The final merge and push of this
+spec-correction branch to `main` is performed by a designated write-capable
+session (the operator/ops session), not by the coders or the orchestrator. The
+PR is prepared locally; the designated session performs the push and merge. This
+unblocks only the eventual merge, not this spec pass. See `docs/runbook.md`.
 
 ## Spec homing
 

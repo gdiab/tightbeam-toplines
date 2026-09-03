@@ -25,12 +25,12 @@ from "zero".
   "org": {
     "sessions": {
       "total": 51,                      // sessions.state = 'active'
-      // byKind is the DERIVED holder kind (see Rules), NOT the sessions.kind column
-      // (sessions.kind is only 'main'|'dm'|'custom').
-      // HOLE D-a (dr_3527028b): the 'patrol' bucket is unresolved — the sole patrol
-      // session has archetype='orchestrator' (handle orchestrator:stall-patrol) and only
-      // its display name says "patrol", which the spec forbids inferring from. Until
-      // George rules, do not emit a 'patrol' bucket by guessing; see Rules → holders[].kind.
+      // byKind is the DERIVED holder kind (see Rules -> holders[].kind), from the
+      // deployed ATC kind_of on the session DISPLAY NAME — NOT the sessions.kind
+      // column. The 'patrol' bucket is ruled (D-a, dr_9daadbe0): the sole patrol
+      // session (display name "Stall Patrol - coordination flow") classifies as
+      // 'patrol' by its name. Vocabulary is the deployed seven: main, po, patrol,
+      // orch, coder, rev, spec.
       "byKind":    {"main":1,"po":9,"patrol":1,"orch":5,"coder":18,"rev":16,"spec":1},
       "byHarness": {"codex":25,"claude":19,"cursor":7}
     },
@@ -95,13 +95,15 @@ from "zero".
                                         // RECON: live values include reviewed-clean, tests-passed, verified,
                                         // spec-reviewed, changes-requested, spirit-accepted, thermo-clean, … (open set)
       },
-      "stage": 1,                       // ATC ladder 0..6, see spec.md Terms → Stage and reference/atc-derivations.md.
-                                        // RULED D-c: STRUCTURE mirrors the deployed (parity-target) ATC. TopLines
-                                        // drops git ancestry and no 'ready-to-merge' verdict exists (0 rows), so
-                                        // rung 5 is effectively unreached — items ATC rates 5 read 4 here and the
-                                        // daily parity check flags them (expected).
-                                        // HOLE D-b (dr_3527028b): the authoritative ATC source + reachable pin are
-                                        // pending George; rung 5's exact predicate is not hardened until he pins it.
+      "stage": 1,                       // ATC ladder 0..6, see spec.md Terms → Stage and reference/atc-derivations.md §3.
+                                        // RULED D-b/D-c (dr_9daadbe0): ported verbatim from the deployed ATC
+                                        // /usr/local/bin/tb-weather-gen lines 282-306. The stage reads only attest
+                                        // kinds, verdict kinds and item state — it never consults git, in ATC or
+                                        // here, so TopLines' stage EQUALS the deployed ATC's stage and the daily
+                                        // parity check expects an exact match. ATC's separate git-derived 'merged'
+                                        // green ring is NOT a stage input and is not emitted by TopLines. No
+                                        // 'ready-to-merge' verdict exists; rung 5 = completion + reviewed-clean
+                                        // (review not stale) + no open assignment.
       "holders": [                      // sessions holding an open card, in card order
         {
           "sessionKey": "agent:product-owner:pi-harness s_751dc31a",
@@ -128,27 +130,27 @@ from "zero".
   test on the page measures the watcher, not the generator.
 - `stage` is `null` when the item is closed or when ATC's ladder cannot be
   evaluated (missing attest rows), never guessed.
-- `holders[].kind` uses ATC's vocabulary: `main`, `po`, `orch`, `coder`, `rev`,
-  `spec`, `recon`, `agent`, plus `patrol` pending D-a. Derivation (ruled
-  corrections, spec.md Terms → Holder kind is the home):
-  - `main`: from `sessions.kind = 'main'`, NOT a durable `main` role row — there
-    is no such role row, and the main session's archetype is `default`.
-  - `po`/`orch`/`coder`/`rev`/`spec`/`recon`: map from `sessions.archetype`
-    (product-owner, orchestrator, coder, reviewer, spec-writer, recon) — verified
-    computable and clean.
-  - unknown archetype: `agent`. Never infer kind from a display name.
-  - `patrol`: **HOLE D-a (dr_3527028b)** — not derivable from archetype+roles (the
-    patrol session is archetype `orchestrator`); its only signal is the display
-    name, which the spec forbids. George decides: accept display-name inference for
-    `patrol` as a single documented exception (PO recommendation), or drop `patrol`
-    and classify that session as `orch`. Do not guess until he rules.
-  - Provenance: **HOLE D-b (dr_3527028b)** — `reference/atc-derivations.md` pins
-    these to `tb-weather-gen@181ca45`, which is ABSENT from the only checkout
-    (`~/github/tightbeam-atc`, HEAD `a7d14e6`, a Desk-layer fork). Its live
-    `kind_of(name)` is display-name-based (default `coder`) and it has no matching
-    stage block; "port verbatim" is impossible from what exists. Until George pins
-    a reachable authoritative ATC source, treat spec.md Terms as the authority for
-    the ruled derivations, not the checkout.
+- `holders[].kind` uses the deployed ATC vocabulary — exactly seven kinds:
+  `main`, `po`, `patrol`, `orch`, `coder`, `rev`, `spec` (no `recon`, no
+  `agent`). Derivation is ported verbatim from the deployed generator
+  `/usr/local/bin/tb-weather-gen` `kind_of(name)` (lines 48-57), ruled D-a
+  (dr_9daadbe0); spec.md Terms → Holder kind is the home:
+  - Kind is inferred from the session DISPLAY NAME, lower-cased, first match
+    wins: `main` when the name is exactly `main`; `po` when it contains
+    `product owner`; `patrol` when it contains `patrol` or `watchdog`; `orch`
+    when it contains `orchestrator`; `coder` when it contains `coder`; `rev`
+    when it contains `review`; `spec` when it contains `spec`; otherwise
+    `coder`.
+  - Post-step (deployed lines 164-168): a session that classified as `coder`
+    but has no spawner (`sessions.spawnedBy` null) is re-labelled `po`.
+  - Nothing reads `sessions.kind`; the deployed sessions query selects no such
+    column. Every kind, `main` included, comes from the display name. The
+    `patrol` session (display name `Stall Patrol - coordination flow`, archetype
+    `orchestrator`) classifies as `patrol` by its name.
+  - Provenance: ported from the DEPLOYED binary (D-b, dr_9daadbe0). The upstream
+    commit `181ca45` is abandoned and the Desk-layer fork checkout
+    (`~/github/tightbeam-atc@a7d14e6`) is not authority. `reference/atc-derivations.md`
+    §2 holds the source pin.
 - Unknown harness or model strings pass through as found in `sessions`.
 - The parity block is `null` until the first parity run.
 - `schema` increments only on an incompatible change; the page refuses a
