@@ -76,8 +76,7 @@ ruling before implementation.
 2. **Generator** `bin/tb-toplines-gen`. Reads the ledger read-only in one
    short transaction and writes `web/toplines.json` atomically (temp file,
    rename). It resolves reviewed-assignment membership and reads every ledger
-   table required by the Terms below, including `causal_events` and
-   `causal_events_epoch`. Emits exactly the shape in `docs/data-contract.md`.
+   table required by the Terms below. Emits exactly the shape in `docs/data-contract.md`.
    Per item:
    identity, state, time since last progress (the CLI's `sinceProgressMs`),
    running and queued turn
@@ -107,8 +106,8 @@ ruling before implementation.
    without touching it.
 6. **Parity check** `bin/tb-toplines-parity` on a daily systemd user timer.
    Runs `tightbeam toplines --as-user george` exactly once, then immediately
-   runs the generator and compares each open item's minutes-since-activity
-   (tolerance 120 s), open and closed card counts and attest totals against
+   runs the generator and compares each open item's minutes-since-progress
+   (`sinceProgressMs`, tolerance 120 s), open and closed card counts and attest totals against
    that generated `toplines.json`. It also compares each item's stage against
    ATC's `/opt/tb-atc/web/data.json` (read, not requested). If a compared input
    row changed between the CLI start and the generator snapshot, the result is
@@ -169,9 +168,9 @@ disagree, the authority wins and this Term is corrected to it.
   session has a `wakes` row in state `pending`.
 - **Turn counts.** `turns.total` and `turns.live` count the turns threaded to
   the item through Assignment membership and rows whose `jobRef` is the item id;
-  `live` counts those started and not ended. Where the CLI cannot attribute
-  historical turns because they predate its attribution cutoff
-  (`causal_events_epoch`), the count is `null`, not zero — matching the CLI.
+  `live` counts those started and not ended. An item with no such turns is `0`,
+  a real zero. Turn counts are a display number and are not in the parity
+  comparison.
 - **Stage.** The evidence ladder mirrors the deployed (parity-target) ATC's
   stages (D-c, ruled att_5ecfb687), evaluated top-down (the highest satisfied
   rung wins): 0 none; 1 a `progress` attest; 2 a `tests-passed` verdict; 3 a
@@ -181,7 +180,10 @@ disagree, the authority wins and this Term is corrected to it.
   ancestry, so an item ATC rates 5 by ancestry reads 4 here and the daily
   parity check flags the difference (this simplification is expected, D-c). No
   `ready-to-merge` verdict exists in the ledger today, so rung 5 is effectively
-  unreached in v1.
+  unreached in v1. Closed items are omitted from `toplines.json`
+  (`docs/data-contract.md`), so rung 6 does not appear in output; `stage` is
+  `null` for an item whose ladder cannot be evaluated (missing rows), never
+  guessed.
   **[HOLE — D-b: authoritative ATC source + reachable pin, pending George
   dr_3527028b (deadline 48h from 2026-09-02).** The ladder STRUCTURE above is
   ruled. Its SOURCE is not: `reference/atc-derivations.md` pins
