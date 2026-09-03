@@ -5,7 +5,7 @@ Requested by George 2026-09-01. Specified 2026-09-02 from a reviewed mock.
 Host: `sirius`, the Tightbeam host. Sibling of `clickety-clacks/tightbeam-atc`,
 which this work must not modify.
 
-## Problem
+## Goal
 
 The org's state is fully queryable, but only piecewise. `tightbeam toplines`
 returns 400 KB of JSON for 184 items; `attests` and `transcript` read one card
@@ -14,15 +14,18 @@ little about a specific row. The operator's actual question several times a day
 is tabular: which items are open, who holds each, how long since anyone made
 progress, what evidence each carries, which wakes fire next, and whether
 anything is waiting on me. Today that means a terminal and several commands.
-It should be a page on the tailnet that is always current.
+It should be a page on the tailnet that is always current. The v1 outcome is a
+truthful, read-only table that lets the operator answer those questions without
+assembling several terminal responses.
 
-## Hard constraints
+## Invariants
 
-1. **No `tightbeam` CLI polling.** Every CLI verb appends to the ledger's
+1. **No production `tightbeam` CLI polling.** Every CLI verb appends to the ledger's
    `events`; a read loop on the CLI grew `state.db` to 4.9 GB and cascaded
    into a VM crash (clickety-clacks/tightbeam#10). All live reads come from
-   `state.db` opened `file:...?mode=ro`. The one sanctioned CLI call is the
-   nightly parity check (§ Scope 6), once per day.
+   `state.db` opened `file:...?mode=ro`. Deployed code may make one CLI call:
+   the daily parity check (§ Scope 6), once per day. The bounded manual calls
+   named in Acceptance 2 and 9 are acceptance evidence, not a deployed cadence.
 2. **Short read transactions only.** The generator takes one `BEGIN`, runs its
    queries, and closes, in well under a second. A long-lived read snapshot
    blocks WAL checkpointing and grows the log without bound.
@@ -34,23 +37,50 @@ It should be a page on the tailnet that is always current.
    operator token. Decision D4 in `docs/decisions.md`; George may reopen it.
 5. **No external fetches.** The page loads with no internet: no CDN, no web
    fonts, no analytics. System fonts only.
-6. **Standard library only.** Python 3.12 stdlib for the watcher, generator,
-   server and parity check. One static HTML file for the page.
+6. **No third-party runtime dependencies.** The watcher keeps ATC's Bash wrapper
+   plus inline Python 3.12 shape. The generator, server and parity check use only
+   the Python 3.12 standard library. The page is one static HTML file with
+   inline CSS and JavaScript.
 7. **Deploy as `gd`, no root.** systemd user units, files under
    `/home/gd/tb-toplines/`, the sidecar via `docker` (gd is in the docker
    group). Loopback port 8898, bound to 127.0.0.1 only. No ufw change.
 
+## Assumptions
+
+- The production ledger is a local SQLite database in WAL mode at
+  `/home/gd/.tightbeam/state.db`; deployment must verify that path and mode.
+- George is the sole operator and the only person granted tailnet access to the
+  TopLines hostname (D8). A second viewer invalidates the visibility model.
+- User `gd` can read the ledger, manage systemd user units, use Docker, and bind
+  loopback port 8898. Deployment must verify each capability before install.
+- Schema drift is expected over time. An unknown required table or column is a
+  named failure that preserves the last good page data; it is never guessed.
+
+## Architecture
+
+`docs/architecture.md` owns the component diagram, data flow, latency budget and
+failure-mode rationale. The required components and behavior are the numbered
+scope below. If the architecture note and this contract disagree, stop for a PO
+ruling before implementation.
+
 ## Scope
 
-1. **Watcher** `bin/tb-toplines-watch`. One read-only connection; poll
-   `PRAGMA data_version` every 0.5 s; on change run the generator with a 2 s
-   cooldown measured from the end of the previous pass; run it anyway every
-   30 s as a heartbeat so idle timers advance. Port of ATC's
-   `bin/tb-weather-watch` with the cooldown changed.
+1. **Watcher** `bin/tb-toplines-watch`. Open one read-only connection and run the
+   generator once before waiting. Poll `PRAGMA data_version` every 0.5 s. A
+   change sets a pending-generation flag. Run once as soon as at least 2 s have
+   elapsed since the previous pass ended, then clear the flag only if no newer
+   change arrived. A change during a pass or cooldown must cause a pass at the
+   next eligible instant; it must not be discarded. Run at least every 30 s as
+   a heartbeat so idle timers advance. Port ATC's `bin/tb-weather-watch` only
+   where that behavior agrees with this clause.
 2. **Generator** `bin/tb-toplines-gen`. Reads the ledger read-only in one
    short transaction and writes `web/toplines.json` atomically (temp file,
-   rename). Emits exactly the shape in `docs/data-contract.md`. Per item:
-   identity, state, minutes since last progress, running and queued turn
+   rename). It resolves reviewed-assignment membership and reads every ledger
+   table required by the Terms below, including `causal_events` and
+   `causal_events_epoch`. Emits exactly the shape in `docs/data-contract.md`.
+   Per item:
+   identity, state, time since last progress (the CLI's `sinceProgressMs`),
+   running and queued turn
    state, pending wake, open and closed cards with outcomes, attest counts by
    kind and verdict kind, evidence stage on ATC's ladder, holders with name,
    kind, harness and model, turn count, open decision requests, fail reason.
@@ -60,9 +90,10 @@ It should be a page on the tailnet that is always current.
    time under 300 ms on today's ledger (516 MB, 13k turns, 6.7k attests).
 3. **Page** `web/index.html`. The reviewed mock (`mock/toplines.html`) with
    its inline snapshot replaced by a single-flight fetch of `toplines.json`
-   every 2 s, rows keyed by item id and updated in place, and a stale banner
-   when `generatedAt` is older than 90 s. Vitals strip, filters (state,
-   holder kind, quiet band), the work-items table with quiet-band dividers,
+   every 2 s and a stale/error banner when `generatedAt` is older than 90 s or
+   a fetch, parse, or schema-version check fails. Vitals strip, filters (state,
+   every holder kind present, quiet band), the work-items table with quiet-band
+   dividers for open items only (iceboxed items are a flat list),
    the right rail (needs your ruling, scheduled wakes, sessions by kind), the
    appearance toggle (system, light, dark, remembered per browser), and a
    link to ATC in the header. Visual system per `docs/design.md`.
@@ -75,15 +106,29 @@ It should be a page on the tailnet that is always current.
    `http://127.0.0.1:8898`. Tailnet-only. Mirrors how `tb-atc-ts` is run,
    without touching it.
 6. **Parity check** `bin/tb-toplines-parity` on a daily systemd user timer.
-   Runs `tightbeam toplines --as-user george` exactly once, compares each open
-   item's minutes-since-progress (tolerance 120 s), open and closed card
-   counts and attest totals against the latest `toplines.json`, and compares
-   each item's stage against ATC's `/opt/tb-atc/web/data.json` (read, not
-   requested). Writes a `parity` block into the next `toplines.json` via a
-   sidecar file the generator merges, so the page shows "parity ok, 03:00" or
-   a warning naming the first mismatch.
+   Runs `tightbeam toplines --as-user george` exactly once, then immediately
+   runs the generator and compares each open item's minutes-since-activity
+   (tolerance 120 s), open and closed card counts and attest totals against
+   that generated `toplines.json`. It also compares each item's stage against
+   ATC's `/opt/tb-atc/web/data.json` (read, not requested). If a compared input
+   row changed between the CLI start and the generator snapshot, the result is
+   `inconclusive` with the changing input named, not `ok` or a mismatch; the
+   timer does not make a second CLI call that day. Writes a `parity` block into
+   the next `toplines.json` via a sidecar file the generator merges, so the page
+   shows "parity ok, 03:00", an inconclusive notice, or a warning naming the
+   first mismatch. The sidecar also copies
+   `coverage.basis` and `edgeBasis` from that same CLI response and stamps them
+   with the parity run time; the generator never synthesizes either value.
 7. **Runbook** `docs/runbook.md` finished: install, start, verify, logs,
    restart, roll back, and what to do when the parity check warns.
+8. **Documented test seams.** Production defaults are fixed, but the binaries
+   accept these environment overrides so destructive negative tests never touch
+   production inputs: `TB_TOPLINES_DB` (a database path that code always turns
+   into a `file:...?mode=ro` URI), `TB_TOPLINES_OUT`,
+   `TB_TOPLINES_PARITY`, and `TB_TOPLINES_ATC_DATA`. Parity also accepts
+   `TB_TOPLINES_CLI_JSON`, a captured real CLI response; when set it performs
+   compare-only work and must not invoke `tightbeam`. Service units set none of
+   these except the deployed output paths.
 
 ## Non-goals
 
@@ -96,27 +141,72 @@ It should be a page on the tailnet that is always current.
   work.
 - Supporting a second host or a remote ledger. One host, local file.
 
-## Definitions the generator must match
+## Terms
 
-- **Quiet (minutes since progress).** Milliseconds since the newest
-  `progress` attest on any assignment threaded to the item; if none, since
-  the item's `startedAt`, else its `createdAt`. Must agree with the CLI's
-  `sinceProgressMs` within 120 s; the parity check enforces it.
-- **Running / wake queued.** Running: a `turns` row for a holder session with
-  `startedAt` set and `endedAt` null. Wake queued: a `wakes` row in state
-  `pending` addressed to a holder session. Mirror the CLI's
-  `active.runningTurn` and `active.pendingSessionWake`.
-- **Stage.** ATC's ladder, ported verbatim from `tb-weather-gen`: 0 nothing;
-  1 a progress attest; 2 a tests-passed verdict; 3 a completion attest; 4 a
-  reviewed-clean, spec-reviewed or verified verdict; 5 ready to merge or
-  merged; 6 closed. The page labels the bands by name in the tooltip.
-- **Holder kind.** ATC's `kind_of(archetype, roles)`: main from a durable
-  `main` role row, else archetype mapped to po, orch, coder, rev, spec, recon,
-  else agent. Reproduce ATC's derivation of `patrol` too; find where ATC
-  derives it and port that, do not infer it from display names.
-- **Needs you.** Rows in `decision_requests` with `kind='operator'` and
-  `status='open'`, plus the per-item count the CLI reports as
-  `openDecisionRequests`.
+Authority (PO governing principle, att_5ecfb687): where a definition feeds the
+daily parity check, the authority is whatever parity measures against — the CLI's
+actual algorithm for ledger-derived numbers, and the deployed (parity-target) ATC
+for the stage ladder and holder kind. Where a Term's wording and that authority
+disagree, the authority wins and this Term is corrected to it.
+
+- **Assignment membership.** An assignment belongs to its non-null
+  `workItemId`. Otherwise it belongs to the item resolved through its
+  `reviewsAssignmentId` chain. One assignment belongs to at most one item.
+- **Quiet (milliseconds since progress).** Mirror the CLI's `sinceProgressMs`
+  exactly (D-d, ruled att_5ecfb687). `lastProgressAt` is the newest `progress`
+  attest timestamp on any member assignment of the item (Assignment
+  membership), else `null`. `sinceProgressMs` is `generatedAt` minus
+  `(lastProgressAt ?? createdAt)`. `work_items` has only a `createdAt` column —
+  there is no `startedAt`, so there is no `startedAt` fallback; the CLI's
+  algorithm reduces to `lastProgressAt ?? createdAt` for the same reason. The
+  contract field carrying the anchor is `lastProgressAt`. Parity tolerance is
+  120 s.
+- **Running / wake queued.** Mirror the CLI's `active.runningTurn` and
+  `active.pendingSessionWake` (D-d). Running is true when any session holding a
+  current open member assignment of the item has a `turns` row with `startedAt`
+  set and `endedAt` null (equivalently `turns.status = 'running'`, the only
+  started-but-not-ended status). Wake queued is true when any such holder
+  session has a `wakes` row in state `pending`.
+- **Turn counts.** `turns.total` and `turns.live` count the turns threaded to
+  the item through Assignment membership and rows whose `jobRef` is the item id;
+  `live` counts those started and not ended. Where the CLI cannot attribute
+  historical turns because they predate its attribution cutoff
+  (`causal_events_epoch`), the count is `null`, not zero — matching the CLI.
+- **Stage.** The evidence ladder mirrors the deployed (parity-target) ATC's
+  stages (D-c, ruled att_5ecfb687), evaluated top-down (the highest satisfied
+  rung wins): 0 none; 1 a `progress` attest; 2 a `tests-passed` verdict; 3 a
+  `completion` attest; 4 a `reviewed-clean`, `spec-reviewed`, or `verified`
+  verdict; 5 merge-ready (completion plus a clean review, no open assignment);
+  6 a closed item with no open assignment. TopLines does not probe git
+  ancestry, so an item ATC rates 5 by ancestry reads 4 here and the daily
+  parity check flags the difference (this simplification is expected, D-c). No
+  `ready-to-merge` verdict exists in the ledger today, so rung 5 is effectively
+  unreached in v1.
+  **[HOLE — D-b: authoritative ATC source + reachable pin, pending George
+  dr_3527028b (deadline 48h from 2026-09-02).** The ladder STRUCTURE above is
+  ruled. Its SOURCE is not: `reference/atc-derivations.md` pins
+  `tb-weather-gen@181ca45`, which is dead/unfetchable, and the only checkout
+  (`~/github/tightbeam-atc@a7d14e6`) is a Desk-layer fork with no matching stage
+  block. Build to the structure now; do not harden rung 5's exact predicate
+  until George pins the authoritative ATC and the pin is reconciled here.]
+- **Holder kind.** `main` comes from `sessions.kind = 'main'` (there is no
+  durable `main` role row; the main session's archetype is `default`).
+  Otherwise map `sessions.archetype` — product-owner→`po`, orchestrator→`orch`,
+  coder→`coder`, reviewer→`rev`, spec-writer→`spec`, recon→`recon`; an unknown
+  archetype is `agent`. Never infer kind from a display name.
+  **[HOLE — D-a: `patrol` source, pending George dr_3527028b (deadline 48h from
+  2026-09-02).** The deployed ATC emits `patrol`, but it is not derivable from
+  archetype+roles: the sole patrol session has archetype `orchestrator` (handle
+  `orchestrator:stall-patrol`) and its only distinguishing signal is the display
+  name, which this spec forbids. George decides between accepting display-name
+  inference for `patrol` as a single documented exception, or dropping `patrol`
+  from the v1 vocabulary and classifying that session as `orch`. PO recommends
+  the documented exception. Until he rules, `patrol` is unresolved and must not
+  be guessed; the `patrol` filter, token and vocabulary entry stay pending.]
+- **Needs you.** Only rows in `decision_requests` with `kind='operator'` and
+  `status='open'` are needs-you rows. The per-item count joins those rows
+  through Assignment membership; it does not copy the CLI's broader count of
+  every open decision-request kind.
 
 ## Acceptance
 
@@ -124,31 +214,47 @@ Every line demonstrated on sirius, command and output on the card.
 
 1. `https://toplines.tailf064dc.ts.net/` renders from a tailnet device with no
    external requests (browser network panel: only same-origin).
-2. With the mock's 17 open items as reference, the live page shows the same
-   items with quiet, cards, attests and holders that match a fresh
-   `tightbeam toplines --as-user george` run (one call, made by hand for this
-   check) within the stated tolerances.
+2. Capture one fresh `tightbeam toplines --as-user george` response by hand.
+   The default open view's item-id set matches the response's open item set
+   exactly. For every open item, quiet, card counts, attest totals and kinds,
+   and active flags match within the stated tolerance. Holder session keys and
+   their name, archetype, harness and model match one read-only ledger query;
+   those fields are not claimed to come from the CLI response. Save the real
+   CLI response as the parity negative-test input for Acceptance 9.
 3. Latency: file a progress attest on a test card, time until the row's quiet
-   resets on screen. Under 5 s, three trials.
+   resets on screen. Under 5 s, three trials, including one commit made during
+   the watcher's cooldown.
 4. Stale banner appears within 2 minutes of `systemctl --user stop
-   tb-toplines-watch`, disappears within 5 s of start.
-5. `PRAGMA data_version` poll and generator pass cause no write: `ls -la
-   ~/.tightbeam/state.db-wal` size stays within its checkpoint band (about
-   4 MB) across an hour of operation; generator pass under 300 ms per the
-   footprint block.
+   tb-toplines-watch`, and disappears within 5 s of start without requiring a
+   ledger change. A failed fetch, malformed JSON, and unsupported higher schema
+   each show a named error while the last good rows remain visible.
+5. Against a database copy captured from the live ledger, keep the watcher in
+   its pulse, cooldown and heartbeat states while a second connection commits
+   and checkpoints; the checkpoint completes and the WAL can truncate, proving
+   no read transaction spans a sleep. On the live ledger, ten generator passes
+   each complete under 300 ms by an independent wall-clock measurement; the
+   footprint block agrees. All reader source paths construct a `mode=ro` URI.
 6. Generator opens the ledger with `mode=ro` (grep the source) and exits
    non-zero, leaving the previous `toplines.json` intact, if the schema it
-   expects is missing (test by pointing it at an empty database).
-7. Light and dark render correctly from the OS setting and from the toggle;
-   the toggle survives reload.
+   expects is missing. Demonstrate with an existing empty database selected by
+   `TB_TOPLINES_DB` and a seeded output selected by `TB_TOPLINES_OUT`; record
+   the output hash before and after.
+7. At the mock's desktop, 1000 px and 600 px widths, computed theme tokens match
+   `docs/design.md`, text and controls remain readable, and the table stays
+   inside its horizontal scroller. OS light/dark and each explicit toggle state
+   work; the toggle survives reload.
 8. Header link opens ATC at `https://atc.tailf064dc.ts.net/`.
 9. Parity timer has run once, its result is visible on the page, and a
-   deliberately corrupted stage in `data.json` copy makes it warn.
+   deliberately corrupted stage in a copy of ATC's `data.json` makes it warn.
+   Run the negative control with `TB_TOPLINES_CLI_JSON` set to the real capture
+   from Acceptance 2 and `TB_TOPLINES_ATC_DATA` set to the corrupt copy; prove
+   it makes no additional CLI call and does not modify ATC.
 10. `docs/runbook.md` walks a fresh shell through install, verify and roll
     back, and the reviewer has followed it.
 11. Nothing under `/opt/tb-atc`, `/usr/local/bin/tb-weather-*`, or the
-    `tb-atc-ts` container changed (`stat` before and after; `docker inspect`
-    diff).
+    `tb-atc-ts` container changed. Compare before/after recursive SHA-256
+    manifests and metadata for both filesystem paths, normalized
+    `docker inspect` output, and `tailscale serve status` from `tb-atc-ts`.
 
 ## Fixtures
 
@@ -163,11 +269,48 @@ Every line demonstrated on sirius, command and output on the card.
   page server under 0.1%; one ATC pass 130 ms. The host was at load 0.03 on
   16 threads with 21 GB free.
 
-## Open questions for the PO
+## Open questions
 
-1. The CLI's `coverage.basis` and `edgeBasis` are shown in the mock footer as
-   provenance. The generator cannot compute them from the ledger. Drop them,
-   or copy them once from the nightly parity output?
-2. Should iceboxed items get quiet-band dividers like open ones, or a flat
-   list? The mock does flat.
-3. Wake prompts are truncated to 140 characters in the rail. Enough?
+Both remaining questions are escalated to George as **decision request
+`dr_3527028b`** (deadline 48h from 2026-09-02). Their spec homes above are marked
+`[HOLE — D-a]` and `[HOLE — D-b]`. Both are BLOCKING for the marked scope only:
+holder-kind `patrol` (D-a) and the Stage source pin (D-b) wait for the ruling; the
+rest of this spec is buildable now. When George rules, the resolutions fold into
+the same spec-correction PR — no second PR.
+
+1. **[HOLE — D-a] Blocking (patrol scope only) — patrol classification.** The
+   deployed ATC emits `patrol`, but it is not derivable from archetype+roles: the
+   sole patrol session has archetype `orchestrator` and its only signal is the
+   display name, which this spec forbids. George decides: accept display-name
+   inference for `patrol` as a single documented exception, or drop `patrol` from
+   the v1 vocabulary, filters and tokens and classify that session as `orch`. PO
+   recommends the documented exception. See Terms → Holder kind.
+2. **[HOLE — D-b] Blocking (stage source only) — ATC source pin.**
+   `reference/atc-derivations.md` pins `tb-weather-gen@181ca45`, which is
+   dead/unfetchable; the only checkout (`~/github/tightbeam-atc@a7d14e6`) is a
+   Desk-layer fork with no matching stage block. George pins a reachable,
+   authoritative ATC source; the Stage ladder STRUCTURE is already ruled (D-c) and
+   the pin fixes rung 5's exact predicate and the source attribution. PO
+   recommends the deployed `/usr/local/bin/tb-weather-gen` + its `data.json` as
+   the port and parity authority. See Terms → Stage and
+   `reference/atc-derivations.md`.
+
+Resolved this pass (PO rulings att_5ecfb687):
+- **D-d** — Quiet, Running and wake-queued match the CLI's algorithm exactly;
+  Quiet reduces to `lastProgressAt ?? createdAt` because `work_items` has no
+  `startedAt` column. See Terms.
+- **D-c** — the Stage ladder STRUCTURE matches the deployed ATC; the git-ancestry
+  simplification is documented. Only its source pin (D-b) stays open.
+
+The original three questions are resolved: coverage provenance is copied from
+the timestamped daily parity response; iceboxed items are flat; wake prompts
+keep the first 140 Unicode code points in v1.
+
+## Spec homing
+
+This file owns required behavior and acceptance. `docs/data-contract.md` owns
+the JSON field shape, `docs/design.md` and `mock/toplines.html` own presentation
+as stated in the design document, `docs/architecture.md` owns rationale,
+`docs/decisions.md` owns dated rulings, and `reference/atc-derivations.md` owns
+source attribution. `AGENTS.md` is the operating pattern this work teaches
+agents. A conflict between homes blocks implementation until the PO rules it.
