@@ -8,11 +8,13 @@ file the work.
 ## What exists
 
 - `docs/spec.md`: the contract. Problem, hard constraints, numbered scope,
-  definitions, acceptance criteria, fixtures, three open questions for you.
+  definitions, acceptance criteria, fixtures. Its three original open questions
+  are resolved and homed (decisions.md D15-D17); none remain for you.
 - `docs/architecture.md`: components, data flow, latency budget, failure
   modes, and why each alternative was rejected.
-- `docs/decisions.md`: fourteen dated decisions. D3, D4, D6, D7, D10, D14 are
-  George's rulings; the rest were recommended and accepted.
+- `docs/decisions.md`: eighteen dated decisions (through D18). D3, D4, D6, D7,
+  D10, D14 are George's rulings; D15-D18 record the resolved open questions and
+  the spec-correction rulings; the rest were recommended and accepted.
 - `docs/design.md`, `docs/data-contract.md`, `docs/runbook.md` (draft).
 - `mock/toplines.html`: the reviewed mock, rendered from a real snapshot.
   George has approved its appearance. Open it in a browser.

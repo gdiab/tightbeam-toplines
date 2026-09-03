@@ -85,9 +85,12 @@ sidecar reaches loopback directly.
 
 ## D13 · 2026-09-02 · One short read transaction per pass
 
-ATC's generator opens one `BEGIN` so every fact in a pass comes from one
-snapshot, then closes. TopLines copies that. The earlier v1 note said "no
-explicit transactions"; that was too strict. The rule is short, never long.
+The deployed ATC generator opens one read-only connection but NO explicit
+`BEGIN` (`/usr/local/bin/tb-weather-gen` lines 38-61). TopLines deliberately
+adds one short read transaction of its own, so every fact in a pass comes from
+one snapshot, then closes — this is TopLines hardening, not a port from ATC
+(`reference/atc-derivations.md` §4 states the same). The rule is short, never
+long: a long-lived read snapshot blocks WAL checkpointing and grows the log.
 
 ## D14 · 2026-09-02 · Tightbeam builds it
 
