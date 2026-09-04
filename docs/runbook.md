@@ -310,6 +310,15 @@ recurring warn as one that self-clears automatically, and do not loosen the
 tolerance to hide it. A permanent fix is tracked in the v1.1 backlog
 (wi_664b1447).
 
+To recognise this warn on the page: the footer shows a red
+`warning: mismatch` that names one or more rows whose quiet value differs
+from the CLI value by a roughly-uniform amount, close to that run's
+CLI-to-generator gap (about 124s in the observed case), near the daily-run
+time. That uniform delta across the named rows is the clock-gap tell; data
+parity is fine. To confirm, re-run the comparison compare-only, with no new
+CLI capture, against the current `web/toplines.json`. This is benign, not a
+real divergence.
+
 ## After a Tightbeam upgrade
 
 Run the generator by hand. A non-zero exit with a missing column named in the
