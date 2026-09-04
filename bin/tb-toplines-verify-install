@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+"""Install-provenance gate for TopLines.
+
+Fail-closed check run BEFORE any TopLines unit is copied or activated. It
+computes the sha256 of every deployed TopLines artifact under the install root
+and ABORTS (nonzero exit, nothing installed or activated) on ANY mismatch
+against the pinned reviewed-clean set.
+
+The pins are the reviewed-clean deployed product on sirius: the generator and
+parity blobs proved to match review (b1d4c392, 09de23f1) and the remaining
+artifacts computed from that same corrected redeploy, cross-checked against
+reviewed-clean head 26a3641 for every file that head carries. Generated
+outputs (web/toplines.json, web/parity.json) are runtime state, not deployed
+artifacts, and are never pinned. docs/runbook.md is documentation, not a
+runtime artifact, and does not pin itself.
+
+Usage:
+    tb-toplines-verify-install [--root DIR]
+
+Exit status:
+    0  every pinned artifact is present and matches its reviewed-clean sha256
+    1  one or more artifacts are missing or altered -> DO NOT install/activate
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import os
+import sys
+from pathlib import Path
+
+
+ROOT_DEFAULT = Path(
+    os.environ.get("TB_TOPLINES_ROOT", "/home/gd/tb-toplines")
+).expanduser()
+
+# Pinned reviewed-clean sha256 of every deployed TopLines artifact -- the whole
+# set the gate protects. Adding or removing a deployed artifact means editing
+# this table under review. docs/runbook.md is deliberately NOT pinned: it is the
+# gate's own host file and a gate cannot pre-verify the document that carries it.
+#
+# PIN PROVENANCE (PO-locked, wi_f9a21185; present exactly + state residual):
+# TIER A (blob-cryptographic vs surviving reviewed git object 26a3641): parity 09de23f1, ts cd307aed, tb-toplines-parity.service d070d2ca, tb-toplines-parity.timer bd7d6af5, docs/runbook.md.
+# GEN b1d4c392: authoritative reviewed sha + installed match + Acc2 functional.
+# TIER B (independent reviewer-commit-anchored + installed==pin + redeploy record att_b5a53254 + functional; reviewed git-objects reaped => NOT blob-cryptographic): gen->reviewed-clean @6853091 (att_24278bde); web/index.html->reviewed-clean @36a4b4f9 (att_82cde5af); serve+watch->reviewed-clean @8d33eb23 (asg_04c93305); tb-toplines.service+tb-toplines-watch.service->reviewed-clean @8d33eb23 (asg_04c93305).
+# RESIDUAL: Tier-B installed<->reviewed-commit link is reviewer-anchored + functional, NOT blob-cryptographic. Do NOT cite att#6/att_d117b2c2 or the superseded pre-D19 page sha b39347c8.
+PINS: dict[str, str] = {
+    "bin/tb-toplines-gen": "b1d4c392c7324ec1835d1609a10599d6051081f41c230a525a692bebdcf0ded2",
+    "bin/tb-toplines-parity": "09de23f15f7d560b1450a96f70033abf5ca7d2332c74a88b20ac4455d376ff4e",
+    "bin/tb-toplines-serve": "81e905f676f45e2a9270292d1fdf23b09fc29fc49ac4041f959de538bcc44182",
+    "bin/tb-toplines-watch": "7f5497002ae3be05182d3066aea711db1766c15ccf3855af3c237f96b4cc3e81",
+    "bin/tb-toplines-ts": "cd307aedea5cc010075f3e4355a3c12b26237e3501a56e156784e3ccd554b506",
+    "web/index.html": "321b39c1a939499db4bdca8d891523764a76340b333003c04297fc69d137c159",
+    "systemd/tb-toplines.service": "5beb3ed03a4019327137885334aa03090bb3f1fa579547edc4018c97842da33d",
+    "systemd/tb-toplines-watch.service": "2f94734e69daffd84faef63cd37374add89edac18af64a20e1c76f465d00fdc7",
+    "systemd/tb-toplines-parity.service": "d070d2ca776972a199cd9a9ebf8e683f9b9195f72dca4a1d919e0f615229373b",
+    "systemd/tb-toplines-parity.timer": "bd7d6af51b2503959d7bd2349dec069274365882d61b999c6366a381d329137a",
+}
+
+
+def sha256_of(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 16), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def verify(root: Path) -> list[str]:
+    """Return human-readable failures; an empty list means every pin matches."""
+    failures: list[str] = []
+    for relpath, pinned in sorted(PINS.items()):
+        target = root / relpath
+        if not target.is_file():
+            failures.append(f"MISSING  {relpath} (expected {pinned})")
+            continue
+        actual = sha256_of(target)
+        if actual != pinned:
+            failures.append(
+                f"ALTERED  {relpath}\n"
+                f"           expected {pinned}\n"
+                f"           found    {actual}"
+            )
+    return failures
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="TopLines install-provenance gate (fail-closed)"
+    )
+    parser.add_argument(
+        "--root",
+        type=Path,
+        default=ROOT_DEFAULT,
+        help=f"install root to verify (default {ROOT_DEFAULT})",
+    )
+    args = parser.parse_args(argv)
+    root = args.root.expanduser()
+
+    failures = verify(root)
+    if failures:
+        print(
+            f"tb-toplines install gate: ABORT — {len(failures)} of {len(PINS)} "
+            f"artifact(s) do not match the reviewed-clean pin set under {root}",
+            file=sys.stderr,
+        )
+        for line in failures:
+            print(f"  {line}", file=sys.stderr)
+        print(
+            "Nothing has been installed or activated. Resolve artifact "
+            "provenance before continuing (docs/runbook.md, "
+            "\"Install-provenance gate\").",
+            file=sys.stderr,
+        )
+        return 1
+    print(
+        f"tb-toplines install gate: OK — all {len(PINS)} deployed artifacts "
+        f"match the reviewed-clean pin set under {root}"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
