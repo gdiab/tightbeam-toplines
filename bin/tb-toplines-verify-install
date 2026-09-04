@@ -26,14 +26,15 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import os
 import sys
 from pathlib import Path
 
 
-ROOT_DEFAULT = Path(
-    os.environ.get("TB_TOPLINES_ROOT", "/home/gd/tb-toplines")
-).expanduser()
+# Fixed production install root. Verifying a different tree (tests, scratch) is
+# done only through the explicit --root argument, never an environment override:
+# a silent env redirect could make the gate verify one tree while the runbook
+# installs another, defeating the fail-closed guarantee.
+ROOT_DEFAULT = Path("/home/gd/tb-toplines")
 
 # Pinned reviewed-clean sha256 of every deployed TopLines artifact -- the whole
 # set the gate protects. Adding or removing a deployed artifact means editing

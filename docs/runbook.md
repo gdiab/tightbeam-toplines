@@ -128,13 +128,15 @@ git clone https://github.com/gdiab/tightbeam-toplines.git ~/tb-toplines
 # git clone /home/gd/tb-toplines-reviewed.git ~/tb-toplines
 
 cd ~/tb-toplines
-bin/tb-toplines-verify-install \
+bin/tb-toplines-verify-install --root "$PWD" \
   && cp systemd/*.service systemd/*.timer ~/.config/systemd/user/ \
   && systemctl --user daemon-reload \
   && systemctl --user enable --now tb-toplines.service tb-toplines-watch.service tb-toplines-parity.timer
 ```
 
-The gate is identical for both sources. If it prints `ABORT`, stop: the clone
+`--root "$PWD"` makes the gate verify exactly the checkout that the `cp` then
+installs from, so the tree that is verified and the tree that is installed can
+never differ. The gate is identical for both sources. If it prints `ABORT`, stop: the clone
 does not match the reviewed-clean set — an artifact was altered, or (for the
 canonical source) `main` has not yet been merged with the reviewed heads. Resolve
 provenance before re-running; nothing was installed.
@@ -237,7 +239,7 @@ passes; unexpected drift aborts the upgrade before anything restarts.
 
 ```sh
 cd ~/tb-toplines && git pull --ff-only
-bin/tb-toplines-verify-install \
+bin/tb-toplines-verify-install --root "$PWD" \
   && cp systemd/* ~/.config/systemd/user/ && systemctl --user daemon-reload \
   && systemctl --user restart tb-toplines-watch tb-toplines
 ```

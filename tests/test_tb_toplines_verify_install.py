@@ -80,6 +80,45 @@ class InstallGateTest(unittest.TestCase):
         self.assertTrue(any(f.startswith("MISSING") for f in failures))
         self.assertEqual(self.gate.main(["--root", str(self.root)]), 1)
 
+    def test_env_redirect_bypass_is_closed(self) -> None:
+        # Reproduces R1 F1 and proves it is closed. The OLD bypass: point
+        # TB_TOPLINES_ROOT at a clean tree while an altered source is what gets
+        # installed; the gate returned OK and the altered artifact shipped.
+        # Now: (a) the env var is ignored (root is fixed unless --root is given),
+        # and (b) the runbook verifies the SOURCE tree it copies from
+        # (--root=<source>), so an altered source aborts non-zero -> the &&-chain
+        # never copies.
+        import os
+
+        good = self.root  # setUp wrote files whose hashes are self.gate.PINS
+        bad = Path(self.temporary.name) / "bad"
+        for relpath in self.gate.PINS:
+            src = good / relpath
+            if src.is_file():
+                dst = bad / relpath
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                dst.write_bytes(src.read_bytes())
+        altered = next(iter(self.gate.PINS))
+        (bad / altered).write_bytes(b"TAMPERED SOURCE\n")
+
+        prior = os.environ.get("TB_TOPLINES_ROOT")
+        os.environ["TB_TOPLINES_ROOT"] = str(good)  # the old bypass lever
+        try:
+            reloaded = load_gate()
+            reloaded.PINS = dict(self.gate.PINS)
+            # (a) env cannot redirect the default root.
+            self.assertEqual(reloaded.ROOT_DEFAULT, Path("/home/gd/tb-toplines"))
+            # (b) verifying the source tree the runbook copies from aborts even
+            #     though the env points at the clean 'good' tree.
+            self.assertEqual(reloaded.main(["--root", str(bad)]), 1)
+            # sanity: the clean tree still passes.
+            self.assertEqual(reloaded.main(["--root", str(good)]), 0)
+        finally:
+            if prior is None:
+                os.environ.pop("TB_TOPLINES_ROOT", None)
+            else:
+                os.environ["TB_TOPLINES_ROOT"] = prior
+
 
 if __name__ == "__main__":
     unittest.main()
