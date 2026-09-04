@@ -318,10 +318,11 @@ clock-gap, but does not by itself prove data parity: the page shows only the
 first mismatch, so a real divergence on another row or field can hide behind
 it. To confirm, re-run the comparison writing to a scratch output. Set
 `TB_TOPLINES_PARITY` to a temp path (for example `/tmp/parity-check.json`) so
-the live `web/parity.json` stays untouched, and check every compared field
-(quiet, card counts, attest totals, stage) against the CLI. If the only
-discrepancy is the uniform quiet gap, it is benign; if any other field
-diverges, treat it as a real mismatch.
+the live `web/parity.json` stays untouched, and check every compared field:
+quiet, card counts, and attest totals against the CLI, and stage against
+ATC's data.json (`/opt/tb-atc/web/data.json`). If the only discrepancy is the
+uniform quiet gap, it is benign; if any other field diverges (including stage
+vs ATC), treat it as a real mismatch.
 
 ## After a Tightbeam upgrade
 
