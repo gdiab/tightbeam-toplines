@@ -1,0 +1,12 @@
+[Unit]
+Description=TopLines snapshot watcher
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/gd/tb-toplines
+ExecStart=/home/gd/tb-toplines/bin/tb-toplines-watch
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

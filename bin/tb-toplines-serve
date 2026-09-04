@@ -1,0 +1,23 @@
+#!/usr/bin/env python3
+"""Serve the TopLines web directory on its loopback-only port."""
+
+from functools import partial
+from http.server import HTTPServer, SimpleHTTPRequestHandler
+from pathlib import Path
+from urllib.parse import urlsplit
+
+
+HOST = "127.0.0.1"
+PORT = 8898
+WEB_ROOT = Path(__file__).resolve().parent.parent / "web"
+
+
+class TopLinesHandler(SimpleHTTPRequestHandler):
+    def end_headers(self) -> None:
+        if urlsplit(self.path).path == "/toplines.json":
+            self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
+
+handler = partial(TopLinesHandler, directory=str(WEB_ROOT))
+HTTPServer((HOST, PORT), handler).serve_forever()

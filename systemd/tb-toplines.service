@@ -1,0 +1,12 @@
+[Unit]
+Description=TopLines static server
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/gd/tb-toplines
+ExecStart=/home/gd/tb-toplines/bin/tb-toplines-serve
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

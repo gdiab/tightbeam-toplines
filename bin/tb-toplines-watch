@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# tb-toplines-watch — regenerate the TopLines snapshot when the Tightbeam
+# database changes, with a heartbeat fallback. Runs on the Tightbeam host.
+#
+# Ported from clickety-clacks/tightbeam-atc bin/tb-weather-watch at commit
+# 8d267d6b07d1aa95f868089816607d6f0b515bd1 under the MIT License.
+#
+# Change detection is SQLite's own `PRAGMA data_version`, which moves whenever
+# another connection commits. It costs microseconds, needs no packages, and
+# catches updates to existing rows — a turn ending, an item closing — which
+# watching the WAL for writes or counting rows both miss. inotify was the old
+# mechanism and is not always installed; when it was missing this fell back to
+# regenerating every five seconds whether or not anything had happened.
+#
+# Config (environment):
+#   TB_BASE_DIR        Tightbeam base dir (default ~/.tightbeam)
+#   TB_TOPLINES_DB     ledger path (default: $TB_BASE_DIR/state.db)
+#   TB_TOPLINES_GEN    generator path (default: alongside this script)
+#   TB_TOPLINES_MINGAP minimum seconds between passes (default 2)
+#   TB_TOPLINES_PULSE  seconds between change checks (default 0.5)
+#   TB_TOPLINES_BEAT   seconds between heartbeat passes (default 30)
+set -u
+
+BASE="${TB_BASE_DIR:-$HOME/.tightbeam}"
+DB="${TB_TOPLINES_DB:-$BASE/state.db}"
+GEN="${TB_TOPLINES_GEN:-$(dirname "$0")/tb-toplines-gen}"
+
+TB_TOPLINES_WATCH_DB="$DB" \
+TB_TOPLINES_WATCH_GEN="$GEN" \
+python3 -u - <<'PY'
+import os
+import sqlite3
+import subprocess
+import sys
+import time
+from pathlib import Path
+from urllib.parse import quote
+
+db = Path(os.environ["TB_TOPLINES_WATCH_DB"]).expanduser().resolve()
+gen = os.environ["TB_TOPLINES_WATCH_GEN"]
+min_gap = float(os.environ.get("TB_TOPLINES_MINGAP", "2"))
+pulse = float(os.environ.get("TB_TOPLINES_PULSE", "0.5"))
+beat = float(os.environ.get("TB_TOPLINES_BEAT", "30"))
+
+
+def generate(reason: str) -> float:
+    started = time.monotonic()
+    result = subprocess.run([gen], check=False)
+    ended = time.monotonic()
+    duration_ms = round((ended - started) * 1000, 1)
+    print(
+        f"tb-toplines-watch: {reason} pass exit={result.returncode} "
+        f"duration_ms={duration_ms} ended_at={time.time():.3f}",
+        file=sys.stderr,
+        flush=True,
+    )
+    return ended
+
+
+# PRAGMA data_version does not open a read transaction, so this connection can
+# remain alive across sleeps without holding a WAL snapshot or checkpoint lock.
+uri = f"file:{quote(str(db), safe='/')}?mode=ro"
+con = sqlite3.connect(uri, uri=True)
+seen = con.execute("PRAGMA data_version").fetchone()[0]
+pending = False
+
+# Publish once before waiting. Reading data_version first ensures that a commit
+# during this pass remains visible as pending work on the first loop iteration.
+last_pass_end = generate("initial")
+
+while True:
+    try:
+        version = con.execute("PRAGMA data_version").fetchone()[0]
+    except sqlite3.Error as error:
+        print(f"tb-toplines-watch: data_version read failed: {error}", file=sys.stderr, flush=True)
+        time.sleep(2)
+        continue
+
+    if version != seen:
+        seen = version
+        pending = True
+
+    now = time.monotonic()
+    gap_elapsed = now - last_pass_end >= min_gap
+    heartbeat_due = now - last_pass_end >= beat
+
+    if gap_elapsed and (pending or heartbeat_due):
+        reason = "change" if pending else "heartbeat"
+        pending = False
+        last_pass_end = generate(reason)
+
+    time.sleep(pulse)
+PY

@@ -1,0 +1,512 @@
+#!/usr/bin/env python3
+"""Generate TopLines' read-only JSON snapshot.
+
+Production reads the Tightbeam ledger directly because polling the CLI records
+events and previously grew state.db until the host failed (clickety-clacks/
+tightbeam#10).  Each pass uses one short read transaction on a mode=ro URI.
+
+Test seams:
+  TB_TOPLINES_DB      Ledger path (default: /home/gd/.tightbeam/state.db)
+  TB_TOPLINES_OUT     Snapshot path (default: ../web/toplines.json)
+  TB_TOPLINES_PARITY  Parity sidecar path (default: ../web/parity.json)
+
+Holder-kind and evidence-stage logic is ported from the deployed
+/usr/local/bin/tb-weather-gen from clickety-clacks/tightbeam-atc, used under
+the MIT License. Copyright (c) 2026 Mike Manzano.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import socket
+import sqlite3
+import sys
+import tempfile
+import time
+from collections import Counter, defaultdict
+from pathlib import Path
+from typing import Any
+
+
+ROOT = Path(__file__).resolve().parent.parent
+DB_PATH = Path(
+    os.environ.get("TB_TOPLINES_DB", "/home/gd/.tightbeam/state.db")
+).expanduser()
+OUT_PATH = Path(
+    os.environ.get("TB_TOPLINES_OUT", str(ROOT / "web" / "toplines.json"))
+).expanduser()
+PARITY_PATH = Path(
+    os.environ.get("TB_TOPLINES_PARITY", str(ROOT / "web" / "parity.json"))
+).expanduser()
+
+KINDS = ("main", "po", "patrol", "orch", "coder", "rev", "spec")
+ITEM_STATES = ("open", "iceboxed", "closed", "failed")
+OUTPUT_STATES = {"open": 0, "iceboxed": 1, "failed": 2}
+
+
+def kind_of(name: str) -> str:
+    """Port of deployed tb-weather-gen lines 48-57."""
+    lowered = name.lower()
+    if lowered == "main":
+        return "main"
+    if "product owner" in lowered:
+        return "po"
+    if "patrol" in lowered or "watchdog" in lowered:
+        return "patrol"
+    if "orchestrator" in lowered:
+        return "orch"
+    if "coder" in lowered:
+        return "coder"
+    if "review" in lowered:
+        return "rev"
+    if "spec" in lowered:
+        return "spec"
+    return "coder"
+
+
+def session_kind(session: sqlite3.Row) -> str:
+    kind = kind_of(session["displayName"] or "")
+    # Port of deployed tb-weather-gen lines 164-168.
+    if kind == "coder" and not session["spawnedBy"]:
+        return "po"
+    return kind
+
+
+def short_session_key(session_key: str) -> str:
+    return session_key.rsplit(" ", 1)[-1]
+
+
+def resolve_assignments(
+    assignments: list[sqlite3.Row],
+) -> dict[str, str | None]:
+    """Resolve direct and review-chain work-item membership, cycle safely."""
+    by_id = {row["id"]: row for row in assignments}
+    resolved: dict[str, str | None] = {}
+
+    def resolve(assignment_id: str, visiting: frozenset[str]) -> str | None:
+        if assignment_id in resolved:
+            return resolved[assignment_id]
+        if assignment_id in visiting:
+            return None
+        assignment = by_id.get(assignment_id)
+        if assignment is None:
+            return None
+        if assignment["workItemId"] is not None:
+            value = assignment["workItemId"]
+        elif assignment["reviewsAssignmentId"] is None:
+            value = None
+        else:
+            value = resolve(
+                assignment["reviewsAssignmentId"], visiting | {assignment_id}
+            )
+        resolved[assignment_id] = value
+        return value
+
+    for assignment in assignments:
+        resolve(assignment["id"], frozenset())
+    return resolved
+
+
+def evidence_stage(
+    state: str,
+    direct_assignments: list[sqlite3.Row],
+    attests_by_assignment: dict[str, list[sqlite3.Row]],
+) -> int:
+    """Port of deployed tb-weather-gen lines 282-306."""
+    has_open_assignment = any(
+        assignment["state"] == "open" for assignment in direct_assignments
+    )
+    evidence = [
+        attest
+        for assignment in direct_assignments
+        for attest in attests_by_assignment.get(assignment["id"], ())
+    ]
+
+    if state == "closed" and not has_open_assignment:
+        return 6
+
+    kinds = {attest["kind"] for attest in evidence}
+    verdicts = {
+        attest["verdictKind"]
+        for attest in evidence
+        if attest["verdictKind"] is not None
+    }
+    stage = 0
+    if "progress" in kinds:
+        stage = 1
+    if "tests-passed" in verdicts:
+        stage = 2
+    if "completion" in kinds:
+        stage = 3
+    if verdicts & {"reviewed-clean", "spec-reviewed", "verified"}:
+        stage = 4
+
+    last_clean = max(
+        (
+            attest["ts"]
+            for attest in evidence
+            if attest["verdictKind"] == "reviewed-clean"
+        ),
+        default=None,
+    )
+    last_tested = max(
+        (
+            attest["ts"]
+            for attest in evidence
+            if attest["verdictKind"] == "tests-passed"
+        ),
+        default=None,
+    )
+    stale_review = (
+        last_clean is not None
+        and last_tested is not None
+        and last_tested > last_clean + 300_000
+    )
+    if (
+        "completion" in kinds
+        and "reviewed-clean" in verdicts
+        and not stale_review
+        and not has_open_assignment
+    ):
+        stage = 5
+    return stage
+
+
+def rows_by_key(
+    rows: list[sqlite3.Row], key: str
+) -> dict[str, list[sqlite3.Row]]:
+    grouped: dict[str, list[sqlite3.Row]] = defaultdict(list)
+    for row in rows:
+        value = row[key]
+        if value is not None:
+            grouped[value].append(row)
+    return grouped
+
+
+def read_ledger(connection: sqlite3.Connection, generated_at: int) -> dict[str, Any]:
+    work_items = connection.execute(
+        """SELECT id, title, state, failReason, createdAt
+           FROM work_items ORDER BY createdAt, id"""
+    ).fetchall()
+    assignments = connection.execute(
+        """SELECT id, holderKey, openedAt, state, outcome, workItemId,
+                  reviewsAssignmentId
+           FROM assignments ORDER BY openedAt, id"""
+    ).fetchall()
+    attests = connection.execute(
+        """SELECT id, assignmentId, kind, verdictKind, ts
+           FROM attests ORDER BY ts, id"""
+    ).fetchall()
+    turns = connection.execute(
+        """SELECT seq, sessionKey, assignmentId, jobRef, status, startedAt, endedAt
+           FROM turns ORDER BY seq"""
+    ).fetchall()
+    wakes = connection.execute(
+        """SELECT wakeId, sessionKey, origin, prompt, consumer, dueAt,
+                  assignmentId
+           FROM wakes
+           WHERE state='pending' AND consumer='prompt'
+           ORDER BY dueAt, wakeId"""
+    ).fetchall()
+    sessions = connection.execute(
+        """SELECT sessionKey, displayName, spawnedBy, harness, model, state
+           FROM sessions ORDER BY createdAt, sessionKey"""
+    ).fetchall()
+    decisions = connection.execute(
+        """SELECT id, raiserId, assignmentId, question, raisedAt, deadlineAt
+           FROM decision_requests
+           WHERE kind='operator' AND status='open'
+           ORDER BY raisedAt, id"""
+    ).fetchall()
+    causal_cutoff = connection.execute(
+        "SELECT at FROM causal_events_epoch WHERE id=0"
+    ).fetchone()[0]
+    dispositions = connection.execute(
+        """SELECT jobRef, at
+           FROM causal_events
+           WHERE kind='disposition_transition' AND jobRef IS NOT NULL
+           ORDER BY seq"""
+    ).fetchall()
+
+    item_by_id = {row["id"]: row for row in work_items}
+    resolved = resolve_assignments(assignments)
+
+    member_assignments: dict[str, list[sqlite3.Row]] = defaultdict(list)
+    direct_assignments: dict[str, list[sqlite3.Row]] = defaultdict(list)
+    for assignment in assignments:
+        resolved_item = resolved[assignment["id"]]
+        if resolved_item in item_by_id:
+            member_assignments[resolved_item].append(assignment)
+        direct_item = assignment["workItemId"]
+        if direct_item in item_by_id:
+            direct_assignments[direct_item].append(assignment)
+
+    attests_by_assignment = rows_by_key(attests, "assignmentId")
+    turns_by_assignment = rows_by_key(turns, "assignmentId")
+    turns_by_job = rows_by_key(turns, "jobRef")
+    session_by_key = {row["sessionKey"]: row for row in sessions}
+    pending_prompt_sessions = {row["sessionKey"] for row in wakes}
+    dispositions_by_item = rows_by_key(dispositions, "jobRef")
+
+    decision_count_by_item: Counter[str] = Counter()
+    for decision in decisions:
+        work_item_id = resolved.get(decision["assignmentId"])
+        if work_item_id in item_by_id:
+            decision_count_by_item[work_item_id] += 1
+
+    output_items: list[dict[str, Any]] = []
+    for work_item in work_items:
+        if work_item["state"] == "closed":
+            continue
+        work_item_id = work_item["id"]
+        members = member_assignments.get(work_item_id, [])
+        member_ids = {assignment["id"] for assignment in members}
+        item_attests = [
+            attest
+            for assignment_id in member_ids
+            for attest in attests_by_assignment.get(assignment_id, ())
+        ]
+
+        progress_times = [
+            attest["ts"] for attest in item_attests if attest["kind"] == "progress"
+        ]
+        last_progress_at = max(progress_times, default=None)
+
+        open_cards = [assignment for assignment in members if assignment["state"] == "open"]
+        closed_cards = [
+            assignment for assignment in members if assignment["state"] == "closed"
+        ]
+        outcomes = Counter(assignment["outcome"] for assignment in closed_cards)
+
+        holder_keys: list[str] = []
+        seen_holders: set[str] = set()
+        for assignment in open_cards:
+            holder_key = assignment["holderKey"]
+            if holder_key not in seen_holders:
+                seen_holders.add(holder_key)
+                holder_keys.append(holder_key)
+
+        holders = []
+        for holder_key in holder_keys:
+            session = session_by_key[holder_key]
+            holders.append(
+                {
+                    "sessionKey": holder_key,
+                    "short": short_session_key(holder_key),
+                    "name": session["displayName"] or holder_key,
+                    "kind": session_kind(session),
+                    "harness": session["harness"],
+                    "model": session["model"],
+                }
+            )
+
+        item_turns = {
+            turn["seq"]: turn
+            for assignment_id in member_ids
+            for turn in turns_by_assignment.get(assignment_id, ())
+        }
+        item_turns.update(
+            {turn["seq"]: turn for turn in turns_by_job.get(work_item_id, ())}
+        )
+        live_turns = [
+            turn
+            for turn in item_turns.values()
+            if turn["startedAt"] is not None and turn["endedAt"] is None
+        ]
+
+        # Port of Tightbeam.ExecutionMap.anchor/4: the CLI clock advances on
+        # every durable item event whose attribution is known.
+        quiet_anchor = max(
+            [max(work_item["createdAt"], causal_cutoff)]
+            + [
+                turn["endedAt"]
+                for turn in item_turns.values()
+                if turn["endedAt"] is not None
+            ]
+            + [attest["ts"] for attest in item_attests]
+            + [
+                disposition["at"]
+                for disposition in dispositions_by_item.get(work_item_id, ())
+            ]
+        )
+
+        kind_counts = Counter(attest["kind"] for attest in item_attests)
+        verdict_counts = Counter(
+            attest["verdictKind"]
+            for attest in item_attests
+            if attest["verdictKind"] is not None
+        )
+
+        output_items.append(
+            {
+                "id": work_item_id,
+                "short": work_item_id[:11],
+                "title": work_item["title"],
+                "state": work_item["state"],
+                "failReason": work_item["failReason"],
+                "createdAt": work_item["createdAt"],
+                "lastProgressAt": last_progress_at,
+                "sinceProgressMs": generated_at - quiet_anchor,
+                "active": {
+                    "runningTurn": any(
+                        turn["status"] == "running" for turn in item_turns.values()
+                    ),
+                    "pendingSessionWake": any(
+                        holder_key in pending_prompt_sessions
+                        for holder_key in holder_keys
+                    ),
+                },
+                "cards": {
+                    "open": len(open_cards),
+                    "closed": len(closed_cards),
+                    "byOutcome": {
+                        "completed": outcomes["completed"],
+                        "surrendered": outcomes["surrendered"],
+                        "revoked": outcomes["revoked"],
+                    },
+                },
+                "attests": {
+                    "total": len(item_attests),
+                    "byKind": dict(sorted(kind_counts.items())),
+                    "byVerdictKind": dict(sorted(verdict_counts.items())),
+                },
+                "stage": evidence_stage(
+                    work_item["state"],
+                    direct_assignments.get(work_item_id, []),
+                    attests_by_assignment,
+                ),
+                "holders": holders,
+                "turns": {"total": len(item_turns), "live": len(live_turns)},
+                "openDecisionRequests": decision_count_by_item[work_item_id],
+            }
+        )
+
+    output_items.sort(
+        key=lambda item: (OUTPUT_STATES[item["state"]], item["sinceProgressMs"])
+    )
+
+    active_sessions = [session for session in sessions if session["state"] == "active"]
+    session_kind_counts = Counter(session_kind(session) for session in active_sessions)
+    session_harness_counts = Counter(session["harness"] for session in active_sessions)
+    item_state_counts = Counter(work_item["state"] for work_item in work_items)
+
+    org_decisions = []
+    for decision in decisions:
+        org_decisions.append(
+            {
+                "id": decision["id"],
+                "question": decision["question"],
+                "raiser": decision["raiserId"],
+                "raisedAt": decision["raisedAt"],
+                "deadlineAt": decision["deadlineAt"],
+                "workItemId": resolved.get(decision["assignmentId"]),
+            }
+        )
+
+    org_wakes = []
+    for wake in wakes[:20]:
+        work_item_id = resolved.get(wake["assignmentId"])
+        prompt = wake["prompt"]
+        org_wakes.append(
+            {
+                "id": wake["wakeId"],
+                "dueAt": wake["dueAt"],
+                "origin": wake["origin"],
+                "toSessionKey": wake["sessionKey"],
+                "workItemId": work_item_id,
+                "prompt": prompt[:140] if prompt is not None else None,
+            }
+        )
+
+    return {
+        "org": {
+            "sessions": {
+                "total": len(active_sessions),
+                "byKind": {kind: session_kind_counts[kind] for kind in KINDS},
+                "byHarness": dict(sorted(session_harness_counts.items())),
+            },
+            "items": {state: item_state_counts[state] for state in ITEM_STATES},
+            "decisionRequests": org_decisions,
+            "wakes": org_wakes,
+            "wakesPending": len(wakes),
+        },
+        "items": output_items,
+    }
+
+
+def load_parity(path: Path) -> Any:
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except FileNotFoundError:
+        return None
+
+
+def atomic_write(path: Path, value: dict[str, Any]) -> None:
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", dir=path.parent
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(value, handle, ensure_ascii=False, separators=(",", ":"))
+            handle.write("\n")
+        os.rename(temporary_name, path)
+    except BaseException:
+        try:
+            os.unlink(temporary_name)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def generate() -> dict[str, Any]:
+    started = time.perf_counter_ns()
+    generated_at = time.time_ns() // 1_000_000
+    database_path = DB_PATH.resolve()
+    database_uri = f"{database_path.as_uri()}?mode=ro"
+
+    connection = sqlite3.connect(database_uri, uri=True)
+    connection.row_factory = sqlite3.Row
+    try:
+        connection.execute("BEGIN")
+        projection = read_ledger(connection, generated_at)
+        connection.commit()
+    except BaseException:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+    wal_path = Path(f"{database_path}-wal")
+    try:
+        wal_bytes = wal_path.stat().st_size
+    except FileNotFoundError:
+        wal_bytes = 0
+    snapshot = {
+        "schema": 1,
+        "generatedAt": generated_at,
+        "host": socket.gethostname(),
+        "passMs": 0,
+        "footprint": {
+            "dbBytes": database_path.stat().st_size,
+            "walBytes": wal_bytes,
+        },
+        "parity": load_parity(PARITY_PATH),
+        **projection,
+    }
+    snapshot["passMs"] = (time.perf_counter_ns() - started) // 1_000_000
+    return snapshot
+
+
+def main() -> int:
+    try:
+        atomic_write(OUT_PATH, generate())
+    except (json.JSONDecodeError, OSError, sqlite3.Error) as error:
+        print(f"tb-toplines-gen: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
