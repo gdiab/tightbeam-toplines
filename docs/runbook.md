@@ -87,9 +87,10 @@ host file) but appears in the provenance record.
 
 ```
 PIN PROVENANCE (PO-locked, wi_f9a21185; present exactly + state residual):
-TIER A (blob-cryptographic vs surviving reviewed git object 26a3641): parity 09de23f1, ts cd307aed, tb-toplines-parity.service d070d2ca, tb-toplines-parity.timer bd7d6af5, docs/runbook.md.
+TIER A blob-cryptographic vs 26a3641 = 4 gate-pinned artifacts: parity 09de23f1, ts cd307aed, tb-toplines-parity.service d070d2ca, tb-toplines-parity.timer bd7d6af5.
 GEN b1d4c392: authoritative reviewed sha + installed match + Acc2 functional.
 TIER B (independent reviewer-commit-anchored + installed==pin + redeploy record att_b5a53254 + functional; reviewed git-objects reaped => NOT blob-cryptographic): gen->reviewed-clean @6853091 (att_24278bde); web/index.html->reviewed-clean @36a4b4f9 (att_82cde5af); serve+watch->reviewed-clean @8d33eb23 (asg_04c93305); tb-toplines.service+tb-toplines-watch.service->reviewed-clean @8d33eb23 (asg_04c93305).
+docs/runbook.md = reviewed 26a3641 base + the R1-reviewed newly-authored install-gate delta -- provenance is reviewed-base + THIS (R1) review, NOT a 26a3641 cryptographic match.
 RESIDUAL: Tier-B installed<->reviewed-commit link is reviewer-anchored + functional, NOT blob-cryptographic. Do NOT cite att#6/att_d117b2c2 or the superseded pre-D19 page sha b39347c8.
 ```
 
