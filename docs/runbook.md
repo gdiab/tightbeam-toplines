@@ -1,7 +1,5 @@
 # Runbook: TopLines on sirius
 
-**Draft.** Written before the code exists so the coder has a target. Whoever
-deploys finishes it; a deploy without a matching runbook update is incomplete.
 Everything here runs as `gd`. Nothing needs root.
 
 ## Layout on the host
@@ -12,6 +10,7 @@ Everything here runs as `gd`. Nothing needs root.
   bin/tb-toplines-gen        generator (python 3.12, stdlib)
   bin/tb-toplines-serve      static server (python 3.12, stdlib)
   bin/tb-toplines-parity     daily parity check (python 3.12, stdlib)
+  bin/tb-toplines-ts         create TopLines' own Tailscale sidecar
   web/index.html             the page
   web/toplines.json          generator output (not in git)
   web/parity.json            parity output, merged by the generator (not in git)
@@ -48,12 +47,7 @@ systemctl --user enable --now tb-toplines.service tb-toplines-watch.service tb-t
 Sidecar, once:
 
 ```sh
-docker volume create tb-toplines-ts-state
-docker run -d --name tb-toplines-ts --restart unless-stopped \
-  --network host \
-  -e TS_USERSPACE=1 -e TS_HOSTNAME=toplines -e TS_STATE_DIR=/var/lib/tailscale \
-  -v tb-toplines-ts-state:/var/lib/tailscale \
-  tailscale/tailscale:latest
+bin/tb-toplines-ts
 docker logs -f tb-toplines-ts        # follow the auth URL, approve the node in the admin console once
 docker exec tb-toplines-ts tailscale serve --bg http://127.0.0.1:8898
 docker exec tb-toplines-ts tailscale serve status
@@ -66,7 +60,9 @@ Expected: `https://toplines.tailf064dc.ts.net (tailnet only)` proxying to
 
 ```sh
 systemctl --user status tb-toplines tb-toplines-watch --no-pager
+journalctl --user -u tb-toplines -n 20 --no-pager
 journalctl --user -u tb-toplines-watch -n 20 --no-pager
+systemctl --user list-timers tb-toplines-parity.timer --no-pager
 curl -s http://127.0.0.1:8898/toplines.json | python3 -c 'import json,sys,time; d=json.load(sys.stdin); print("age s", round(time.time()-d["generatedAt"]/1000,1), "pass ms", d["passMs"], "items", len(d["items"]))'
 ls -la ~/.tightbeam/state.db-wal          # expect a few MB, not growing
 grep -n 'mode=ro' bin/tb-toplines-gen bin/tb-toplines-watch bin/tb-toplines-parity
@@ -80,6 +76,7 @@ show same-origin requests only.
 | Need | Command |
 |---|---|
 | logs | `journalctl --user -u tb-toplines-watch -f` |
+| parity logs | `journalctl --user -u tb-toplines-parity -n 30 --no-pager` |
 | restart the pipeline | `systemctl --user restart tb-toplines-watch` |
 | restart the server | `systemctl --user restart tb-toplines` |
 | run the generator once by hand | `~/tb-toplines/bin/tb-toplines-gen && head -c 400 ~/tb-toplines/web/toplines.json` |
@@ -115,12 +112,15 @@ unaffected by any of this.
 
 ## When the parity check warns
 
-The page shows the first mismatch. Run `tightbeam toplines --as-user george`
-once by hand and compare the named item. If the CLI changed a definition
-(quiet attribution, card outcomes), update the generator's query and the
+The page shows the first mismatch. Do not rerun the timer: it must make at most
+one CLI call that day. Run `tightbeam toplines --as-user george` once by hand
+and compare the named item with `web/toplines.json`. If the CLI changed a
+definition for quiet or card counts, update the generator query and the matching
 definition in `docs/spec.md`. If ATC's stage differs, read
-`reference/atc-derivations.md` and re-port the ladder. Do not loosen the
-tolerance to make the warning go away.
+`reference/atc-derivations.md`, inspect `/opt/tb-atc/web/data.json` read-only,
+and re-port the ladder. Do not edit ATC or loosen the tolerance to hide the
+warning. An `inconclusive` result names a row that changed during the capture;
+leave it visible and let the next daily timer run perform the next comparison.
 
 ## After a Tightbeam upgrade
 

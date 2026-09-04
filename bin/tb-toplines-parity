@@ -1,0 +1,360 @@
+#!/usr/bin/env python3
+"""Compare TopLines with its CLI and deployed-ATC authorities.
+
+The production path invokes ``tightbeam toplines --as-user george`` exactly
+once, runs the generator, and compares that fresh snapshot.  Tests can set
+TB_TOPLINES_CLI_JSON to a captured real response; that compare-only path never
+invokes Tightbeam or the generator.
+
+All ledger reads use a SQLite mode=ro URI.  The read exists only to detect a
+compared assignment or attest that changed between the CLI start and the
+generator snapshot, which makes the result inconclusive rather than a false
+mismatch.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sqlite3
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+from typing import Any
+
+
+ROOT = Path(__file__).resolve().parent.parent
+DB_PATH = Path(
+    os.environ.get("TB_TOPLINES_DB", "/home/gd/.tightbeam/state.db")
+).expanduser()
+OUT_PATH = Path(
+    os.environ.get("TB_TOPLINES_OUT", str(ROOT / "web" / "toplines.json"))
+).expanduser()
+PARITY_PATH = Path(
+    os.environ.get("TB_TOPLINES_PARITY", str(ROOT / "web" / "parity.json"))
+).expanduser()
+ATC_PATH = Path(
+    os.environ.get("TB_TOPLINES_ATC_DATA", "/opt/tb-atc/web/data.json")
+).expanduser()
+CLI_CAPTURE = os.environ.get("TB_TOPLINES_CLI_JSON")
+QUIET_TOLERANCE_MS = 120_000
+
+
+def read_json(path: Path, label: str) -> Any:
+    try:
+        with path.open(encoding="utf-8") as handle:
+            return json.load(handle)
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError(f"cannot read {label} {path}: {error}") from error
+
+
+def require_mapping(value: Any, label: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise RuntimeError(f"{label} must be a JSON object")
+    return value
+
+
+def rows_by_id(value: Any, label: str) -> dict[str, dict[str, Any]]:
+    if not isinstance(value, list):
+        raise RuntimeError(f"{label} must be a JSON array")
+    result: dict[str, dict[str, Any]] = {}
+    for index, raw_row in enumerate(value):
+        row = require_mapping(raw_row, f"{label}[{index}]")
+        item_id = row.get("id")
+        if not isinstance(item_id, str) or not item_id:
+            raise RuntimeError(f"{label}[{index}].id must be a non-empty string")
+        if item_id in result:
+            raise RuntimeError(f"{label} contains duplicate id {item_id}")
+        result[item_id] = row
+    return result
+
+
+def load_cli() -> tuple[dict[str, Any], bool]:
+    if CLI_CAPTURE is not None:
+        return require_mapping(
+            read_json(Path(CLI_CAPTURE).expanduser(), "CLI capture"),
+            "CLI capture",
+        ), True
+
+    completed = subprocess.run(
+        ["tightbeam", "toplines", "--as-user", "george"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or f"exit {completed.returncode}"
+        raise RuntimeError(f"tightbeam toplines failed: {detail}")
+    try:
+        value = json.loads(completed.stdout)
+    except json.JSONDecodeError as error:
+        raise RuntimeError(f"tightbeam toplines returned invalid JSON: {error}") from error
+    return require_mapping(value, "tightbeam toplines response"), False
+
+
+def run_generator() -> None:
+    generator = ROOT / "bin" / "tb-toplines-gen"
+    subprocess.run([str(generator)], check=True)
+
+
+def resolve_membership(assignments: list[sqlite3.Row]) -> dict[str, str | None]:
+    by_id = {row["id"]: row for row in assignments}
+    resolved: dict[str, str | None] = {}
+
+    def resolve(assignment_id: str, visiting: frozenset[str]) -> str | None:
+        if assignment_id in resolved:
+            return resolved[assignment_id]
+        if assignment_id in visiting:
+            return None
+        row = by_id.get(assignment_id)
+        if row is None:
+            return None
+        if row["workItemId"] is not None:
+            item_id = row["workItemId"]
+        elif row["reviewsAssignmentId"] is not None:
+            item_id = resolve(
+                row["reviewsAssignmentId"], visiting | {assignment_id}
+            )
+        else:
+            item_id = None
+        resolved[assignment_id] = item_id
+        return item_id
+
+    for assignment_id in by_id:
+        resolve(assignment_id, frozenset())
+    return resolved
+
+
+def item_states() -> dict[str, str]:
+    uri = f"file:{DB_PATH.resolve()}?mode=ro"
+    try:
+        with sqlite3.connect(uri, uri=True) as connection:
+            return dict(connection.execute("SELECT id, state FROM work_items"))
+    except sqlite3.Error as error:
+        raise RuntimeError(
+            f"cannot inspect work-item states read-only: {error}"
+        ) from error
+
+
+def changing_input(
+    item_ids: set[str],
+    start_ms: int,
+    snapshot_ms: int,
+    before_states: dict[str, str],
+    snapshot_states: dict[str, str | None],
+) -> str | None:
+    """Name the first compared ledger row changed inside the capture window."""
+    if not item_ids or snapshot_ms < start_ms:
+        return None
+
+    uri = f"file:{DB_PATH.resolve()}?mode=ro"
+    connection = sqlite3.connect(uri, uri=True)
+    connection.row_factory = sqlite3.Row
+    try:
+        assignments = connection.execute(
+            "SELECT id, workItemId, reviewsAssignmentId, openedAt, closedAt "
+            "FROM assignments"
+        ).fetchall()
+        membership = resolve_membership(assignments)
+
+        candidates: list[tuple[int, str]] = []
+        current_states = dict(
+            connection.execute("SELECT id, state FROM work_items").fetchall()
+        )
+        for item_id in item_ids:
+            before = before_states.get(item_id)
+            current = current_states.get(item_id)
+            snapshot = snapshot_states.get(item_id)
+            snapshot_matches = snapshot == current or (
+                snapshot is None and current == "closed"
+            )
+            if before != current and snapshot_matches:
+                candidates.append(
+                    (start_ms, f"{item_id}: work item state {before!r} -> {current!r}")
+                )
+
+        for row in assignments:
+            item_id = membership[row["id"]]
+            if item_id not in item_ids:
+                continue
+            for column in ("openedAt", "closedAt"):
+                changed_at = row[column]
+                if changed_at is not None and start_ms <= changed_at <= snapshot_ms:
+                    candidates.append(
+                        (changed_at, f"{item_id}: assignment {row['id']} {column}")
+                    )
+
+        rows = connection.execute(
+            "SELECT a.id, a.assignmentId, a.ts "
+            "FROM attests a WHERE a.ts >= ? AND a.ts <= ? ORDER BY a.ts, a.id",
+            (start_ms, snapshot_ms),
+        ).fetchall()
+        for row in rows:
+            item_id = membership.get(row["assignmentId"])
+            if item_id in item_ids:
+                candidates.append(
+                    (row["ts"], f"{item_id}: attest {row['id']}")
+                )
+
+        rows = connection.execute(
+            "SELECT id, createdAt FROM work_items "
+            "WHERE createdAt >= ? AND createdAt <= ? ORDER BY createdAt, id",
+            (start_ms, snapshot_ms),
+        ).fetchall()
+        for row in rows:
+            if row["id"] in item_ids:
+                candidates.append((row["createdAt"], f"{row['id']}: work item created"))
+    except sqlite3.Error as error:
+        raise RuntimeError(f"cannot inspect ledger read-only for concurrency: {error}") from error
+    finally:
+        connection.close()
+
+    return min(candidates)[1] if candidates else None
+
+
+def first_mismatch(
+    cli_items: dict[str, dict[str, Any]],
+    top_items: dict[str, dict[str, Any]],
+    atc_items: dict[str, dict[str, Any]],
+) -> str | None:
+    cli_ids = set(cli_items)
+    top_ids = set(top_items)
+    for item_id in sorted(cli_ids - top_ids):
+        return f"{item_id}: missing from toplines.json"
+    for item_id in sorted(top_ids - cli_ids):
+        return f"{item_id}: missing from tightbeam toplines open items"
+
+    for item_id in sorted(cli_ids):
+        cli_row = cli_items[item_id]
+        top_row = top_items[item_id]
+
+        cli_quiet = cli_row.get("sinceProgressMs")
+        top_quiet = top_row.get("sinceProgressMs")
+        if not isinstance(cli_quiet, int) or not isinstance(top_quiet, int):
+            return f"{item_id}: quiet value is not an integer"
+        if abs(cli_quiet - top_quiet) > QUIET_TOLERANCE_MS:
+            return f"{item_id}: quiet {top_quiet}ms vs cli {cli_quiet}ms"
+
+        assignments = require_mapping(cli_row.get("assignments"), f"CLI {item_id}.assignments")
+        cards = require_mapping(top_row.get("cards"), f"TopLines {item_id}.cards")
+        for state in ("open", "closed"):
+            if cards.get(state) != assignments.get(state):
+                return (
+                    f"{item_id}: {state} cards {cards.get(state)!r} "
+                    f"vs cli {assignments.get(state)!r}"
+                )
+
+        cli_attests = require_mapping(cli_row.get("attests"), f"CLI {item_id}.attests")
+        top_attests = require_mapping(top_row.get("attests"), f"TopLines {item_id}.attests")
+        if top_attests.get("total") != cli_attests.get("total"):
+            return (
+                f"{item_id}: attest total {top_attests.get('total')!r} "
+                f"vs cli {cli_attests.get('total')!r}"
+            )
+
+        atc_row = atc_items.get(item_id)
+        if atc_row is None:
+            return f"{item_id}: missing from ATC data"
+        if top_row.get("stage") != atc_row.get("stage"):
+            return (
+                f"{item_id}: stage {top_row.get('stage')!r} "
+                f"vs ATC {atc_row.get('stage')!r}"
+            )
+    return None
+
+
+def atomic_write(path: Path, value: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(value, handle, ensure_ascii=False, separators=(",", ":"))
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_name, path)
+    except BaseException:
+        try:
+            os.unlink(temporary_name)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def main() -> int:
+    compare_only = CLI_CAPTURE is not None
+    before_states = {} if compare_only else item_states()
+    ran_at = time.time_ns() // 1_000_000
+    cli, compare_only = load_cli()
+    if not compare_only:
+        run_generator()
+
+    top = require_mapping(read_json(OUT_PATH, "TopLines snapshot"), "TopLines snapshot")
+    atc = require_mapping(read_json(ATC_PATH, "ATC data"), "ATC data")
+
+    coverage = require_mapping(cli.get("coverage"), "CLI coverage")
+    coverage_basis = coverage.get("basis")
+    edge_basis = cli.get("edgeBasis")
+    if not isinstance(coverage_basis, str) or not isinstance(edge_basis, str):
+        raise RuntimeError("CLI coverage.basis and edgeBasis must be strings")
+
+    cli_rows = rows_by_id(cli.get("items"), "CLI items")
+    cli_open = {
+        item_id: row for item_id, row in cli_rows.items() if row.get("state") == "open"
+    }
+    top_rows = rows_by_id(top.get("items"), "TopLines items")
+    top_open = {
+        item_id: row for item_id, row in top_rows.items() if row.get("state") == "open"
+    }
+    atc_rows = rows_by_id(atc.get("items"), "ATC items")
+
+    changed = None
+    if not compare_only:
+        snapshot_ms = top.get("generatedAt")
+        if not isinstance(snapshot_ms, int):
+            raise RuntimeError("TopLines generatedAt must be an integer")
+        compared_ids = set(cli_open) | set(top_open)
+        snapshot_states = {
+            item_id: top_rows.get(item_id, {}).get("state") for item_id in compared_ids
+        }
+        changed = changing_input(
+            compared_ids,
+            ran_at,
+            snapshot_ms,
+            before_states,
+            snapshot_states,
+        )
+
+    mismatch = first_mismatch(cli_open, top_open, atc_rows)
+    if changed is not None:
+        outcome = "inconclusive"
+        mismatch = None
+    elif mismatch is not None:
+        outcome = "mismatch"
+    else:
+        outcome = "ok"
+
+    parity = {
+        "ranAt": ran_at,
+        "outcome": outcome,
+        "checked": len(set(cli_open) & set(top_open)),
+        "firstMismatch": mismatch,
+        "changingInput": changed,
+        "coverageBasis": coverage_basis,
+        "edgeBasis": edge_basis,
+    }
+    atomic_write(PARITY_PATH, parity)
+    print(json.dumps(parity, ensure_ascii=False, separators=(",", ":")))
+    return 0 if outcome == "ok" else 1
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+        print(f"tb-toplines-parity: {error}", file=sys.stderr)
+        raise SystemExit(2)

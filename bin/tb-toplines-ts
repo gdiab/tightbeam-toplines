@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# TopLines owns this container, hostname, volume, and serve rule. Do not reuse
+# or modify the tb-atc-ts sidecar. Run this as gd; no root privileges are used.
+docker volume create tb-toplines-ts-state >/dev/null
+docker run -d --name tb-toplines-ts --restart unless-stopped \
+  --network host \
+  -e TS_USERSPACE=1 \
+  -e TS_HOSTNAME=toplines \
+  -e TS_STATE_DIR=/var/lib/tailscale \
+  -v tb-toplines-ts-state:/var/lib/tailscale \
+  tailscale/tailscale:latest
+
+printf '%s\n' \
+  'Authenticate the toplines node from: docker logs -f tb-toplines-ts' \
+  'Then configure it: docker exec tb-toplines-ts tailscale serve --bg http://127.0.0.1:8898'

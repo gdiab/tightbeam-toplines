@@ -1,0 +1,7 @@
+[Unit]
+Description=Check TopLines parity against Tightbeam and ATC
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/gd/tb-toplines
+ExecStart=/home/gd/tb-toplines/bin/tb-toplines-parity
