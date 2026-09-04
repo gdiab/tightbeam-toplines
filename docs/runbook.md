@@ -298,6 +298,14 @@ and re-port the ladder. Do not edit ATC or loosen the tolerance to hide the
 warning. An `inconclusive` result names a row that changed during the capture;
 leave it visible and let the next daily timer run perform the next comparison.
 
+A near-daily-run clock-gap warn is benign and self-clears. When the sanctioned
+daily CLI parity run executes more than 120s before its generator pass, the
+uniform capture-time gap pushes each open item's minutes-since-progress just
+over the 120s parity tolerance, and the page shows a false warn (observed
+~124.5s gap, ~4.5s over tolerance). This does not indicate a real parity
+failure; it self-clears on the next daily run. A permanent fix is tracked as a
+v1.1 backlog item.
+
 ## After a Tightbeam upgrade
 
 Run the generator by hand. A non-zero exit with a missing column named in the
