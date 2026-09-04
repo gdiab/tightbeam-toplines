@@ -80,7 +80,7 @@ show same-origin requests only.
 | restart the pipeline | `systemctl --user restart tb-toplines-watch` |
 | restart the server | `systemctl --user restart tb-toplines` |
 | run the generator once by hand | `~/tb-toplines/bin/tb-toplines-gen && head -c 400 ~/tb-toplines/web/toplines.json` |
-| run parity now | `systemctl --user start tb-toplines-parity.service; journalctl --user -u tb-toplines-parity -n 30` |
+| run parity before today's timer | first confirm the timer has not run today, then `systemctl --user start tb-toplines-parity.service; journalctl --user -u tb-toplines-parity -n 30` |
 | sidecar status | `docker exec tb-toplines-ts tailscale status; docker exec tb-toplines-ts tailscale serve status` |
 | footprint on the page | vitals footer shows WAL bytes and pass ms; WAL over 64 MB means a long reader somewhere, find it with `fuser ~/.tightbeam/state.db` |
 
@@ -112,11 +112,12 @@ unaffected by any of this.
 
 ## When the parity check warns
 
-The page shows the first mismatch. Do not rerun the timer: it must make at most
-one CLI call that day. Run `tightbeam toplines --as-user george` once by hand
-and compare the named item with `web/toplines.json`. If the CLI changed a
-definition for quiet or card counts, update the generator query and the matching
-definition in `docs/spec.md`. If ATC's stage differs, read
+The page shows the first mismatch. Do not rerun the timer or invoke
+`tightbeam toplines` again that day: parity makes at most one CLI call per day.
+Inspect the named row in `web/toplines.json`, the read-only ledger, and the
+installed CLI source. If the CLI changed a definition for quiet or card counts,
+update the generator query and the matching definition in `docs/spec.md`. If
+ATC's stage differs, read
 `reference/atc-derivations.md`, inspect `/opt/tb-atc/web/data.json` read-only,
 and re-port the ladder. Do not edit ATC or loosen the tolerance to hide the
 warning. An `inconclusive` result names a row that changed during the capture;
@@ -125,5 +126,5 @@ leave it visible and let the next daily timer run perform the next comparison.
 ## After a Tightbeam upgrade
 
 Run the generator by hand. A non-zero exit with a missing column named in the
-error means schema drift; fix the query, run parity by hand, restart the
-watcher.
+error means schema drift; fix the query, restart the watcher, and let the next
+scheduled parity run validate the repair.
