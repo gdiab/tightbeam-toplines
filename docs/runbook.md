@@ -310,14 +310,18 @@ recurring warn as one that self-clears automatically, and do not loosen the
 tolerance to hide it. A permanent fix is tracked in the v1.1 backlog
 (wi_664b1447).
 
-To recognise this warn on the page: the footer shows a red
-`warning: mismatch` that names one or more rows whose quiet value differs
-from the CLI value by a roughly-uniform amount, close to that run's
-CLI-to-generator gap (about 124s in the observed case), near the daily-run
-time. That uniform delta across the named rows is the clock-gap tell; data
-parity is fine. To confirm, re-run the comparison compare-only, with no new
-CLI capture, against the current `web/toplines.json`. This is benign, not a
-real divergence.
+To recognise a likely clock-gap warn on the page: the footer names the
+first mismatch only, one row whose quiet value differs from the CLI value by
+an amount close to that run's CLI-to-generator gap (about 124s in the
+observed case), near the daily-run time. That is consistent with a benign
+clock-gap, but does not by itself prove data parity: the page shows only the
+first mismatch, so a real divergence on another row or field can hide behind
+it. To confirm, re-run the comparison writing to a scratch output. Set
+`TB_TOPLINES_PARITY` to a temp path (for example `/tmp/parity-check.json`) so
+the live `web/parity.json` stays untouched, and check every compared field
+(quiet, card counts, attest totals, stage) against the CLI. If the only
+discrepancy is the uniform quiet gap, it is benign; if any other field
+diverges, treat it as a real mismatch.
 
 ## After a Tightbeam upgrade
 
