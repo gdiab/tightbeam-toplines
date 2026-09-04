@@ -7,9 +7,9 @@ TB_TOPLINES_CLI_JSON to a captured real response; that compare-only path never
 invokes Tightbeam or the generator.
 
 All ledger reads use a SQLite mode=ro URI.  The read exists only to detect a
-compared assignment or attest that changed between the CLI start and the
-generator snapshot, which makes the result inconclusive rather than a false
-mismatch.
+compared work item, assignment, attest, turn end, or disposition that changed
+between the CLI start and the generator snapshot, which makes the result
+inconclusive rather than a false mismatch.
 """
 
 from __future__ import annotations
@@ -21,8 +21,10 @@ import subprocess
 import sys
 import tempfile
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -40,6 +42,11 @@ ATC_PATH = Path(
 ).expanduser()
 CLI_CAPTURE = os.environ.get("TB_TOPLINES_CLI_JSON")
 QUIET_TOLERANCE_MS = 120_000
+PACIFIC = ZoneInfo("America/Los_Angeles")
+STATE_HOME = Path(
+    os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state"))
+).expanduser()
+ATTEMPT_DIR = STATE_HOME / "tb-toplines"
 
 
 def read_json(path: Path, label: str) -> Any:
@@ -97,6 +104,26 @@ def load_cli() -> tuple[dict[str, Any], bool]:
 def run_generator() -> None:
     generator = ROOT / "bin" / "tb-toplines-gen"
     subprocess.run([str(generator)], check=True)
+
+
+def daily_attempt_path(ran_at: int) -> Path:
+    day = datetime.fromtimestamp(ran_at / 1_000, PACIFIC).date().isoformat()
+    return ATTEMPT_DIR / f"parity-attempt-{day}"
+
+
+def claim_daily_attempt(ran_at: int) -> Path | None:
+    """Atomically claim today's sole production CLI attempt."""
+    ATTEMPT_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path = daily_attempt_path(ran_at)
+    try:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        return None
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(f"{ran_at}\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    return path
 
 
 def resolve_membership(assignments: list[sqlite3.Row]) -> dict[str, str | None]:
@@ -199,6 +226,36 @@ def changing_input(
                 )
 
         rows = connection.execute(
+            "SELECT seq, assignmentId, jobRef, endedAt FROM turns "
+            "WHERE endedAt >= ? AND endedAt <= ? ORDER BY endedAt, seq",
+            (start_ms, snapshot_ms),
+        ).fetchall()
+        for row in rows:
+            affected = {
+                row["jobRef"],
+                membership.get(row["assignmentId"]),
+            } & item_ids
+            for item_id in sorted(affected):
+                candidates.append(
+                    (row["endedAt"], f"{item_id}: turn {row['seq']} endedAt")
+                )
+
+        rows = connection.execute(
+            "SELECT seq, jobRef, at FROM causal_events "
+            "WHERE kind = 'disposition_transition' AND at >= ? AND at <= ? "
+            "ORDER BY at, seq",
+            (start_ms, snapshot_ms),
+        ).fetchall()
+        for row in rows:
+            if row["jobRef"] in item_ids:
+                candidates.append(
+                    (
+                        row["at"],
+                        f"{row['jobRef']}: disposition {row['seq']}",
+                    )
+                )
+
+        rows = connection.execute(
             "SELECT id, createdAt FROM work_items "
             "WHERE createdAt >= ? AND createdAt <= ? ORDER BY createdAt, id",
             (start_ms, snapshot_ms),
@@ -285,10 +342,28 @@ def atomic_write(path: Path, value: dict[str, Any]) -> None:
         raise
 
 
+def classify_outcome(
+    changed: str | None, mismatch: str | None
+) -> tuple[str, str | None]:
+    if changed is not None:
+        return "inconclusive", None
+    if mismatch is not None:
+        return "mismatch", mismatch
+    return "ok", None
+
+
 def main() -> int:
     compare_only = CLI_CAPTURE is not None
     before_states = {} if compare_only else item_states()
     ran_at = time.time_ns() // 1_000_000
+    if not compare_only:
+        attempt_path = claim_daily_attempt(ran_at)
+        if attempt_path is None:
+            print(
+                "tb-toplines-parity: skipped; today's CLI attempt is already "
+                f"recorded at {daily_attempt_path(ran_at)}"
+            )
+            return 0
     cli, compare_only = load_cli()
     if not compare_only:
         run_generator()
@@ -330,13 +405,7 @@ def main() -> int:
         )
 
     mismatch = first_mismatch(cli_open, top_open, atc_rows)
-    if changed is not None:
-        outcome = "inconclusive"
-        mismatch = None
-    elif mismatch is not None:
-        outcome = "mismatch"
-    else:
-        outcome = "ok"
+    outcome, mismatch = classify_outcome(changed, mismatch)
 
     parity = {
         "ranAt": ran_at,

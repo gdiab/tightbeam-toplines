@@ -80,7 +80,8 @@ show same-origin requests only.
 | restart the pipeline | `systemctl --user restart tb-toplines-watch` |
 | restart the server | `systemctl --user restart tb-toplines` |
 | run the generator once by hand | `~/tb-toplines/bin/tb-toplines-gen && head -c 400 ~/tb-toplines/web/toplines.json` |
-| run parity before today's timer | first confirm the timer has not run today, then `systemctl --user start tb-toplines-parity.service; journalctl --user -u tb-toplines-parity -n 30` |
+| show today's parity attempt | `ls -l "${XDG_STATE_HOME:-$HOME/.local/state}/tb-toplines/parity-attempt-$(TZ=America/Los_Angeles date +%F)"` |
+| run parity now | `systemctl --user start tb-toplines-parity.service; journalctl --user -u tb-toplines-parity -n 30` (the atomic daily guard skips a second CLI call) |
 | sidecar status | `docker exec tb-toplines-ts tailscale status; docker exec tb-toplines-ts tailscale serve status` |
 | footprint on the page | vitals footer shows WAL bytes and pass ms; WAL over 64 MB means a long reader somewhere, find it with `fuser ~/.tightbeam/state.db` |
 
@@ -95,9 +96,24 @@ systemctl --user restart tb-toplines-watch tb-toplines
 ## Roll back
 
 ```sh
-cd ~/tb-toplines && git checkout <previous-tag-or-sha>
-systemctl --user restart tb-toplines-watch tb-toplines
+systemctl --user disable --now tb-toplines-parity.timer tb-toplines-parity.service tb-toplines-watch.service tb-toplines.service 2>/dev/null || true
+rm -f ~/.config/systemd/user/tb-toplines-parity.timer ~/.config/systemd/user/tb-toplines-parity.service ~/.config/systemd/user/tb-toplines-watch.service ~/.config/systemd/user/tb-toplines.service
+cd ~/tb-toplines
+git checkout <previous-tag-or-sha>
+if test -d systemd; then
+  find systemd -maxdepth 1 -type f \( -name 'tb-toplines*.service' -o -name 'tb-toplines*.timer' \) -exec cp {} ~/.config/systemd/user/ \;
+fi
+systemctl --user daemon-reload
+for unit in tb-toplines.service tb-toplines-watch.service tb-toplines-parity.timer; do
+  test -f "$HOME/.config/systemd/user/$unit" && systemctl --user enable --now "$unit"
+done
+if test ! -x bin/tb-toplines-ts; then
+  docker rm -f tb-toplines-ts 2>/dev/null || true
+fi
 ```
+
+The sidecar removal keeps the named `tb-toplines-ts-state` volume, so returning
+to a revision that includes the sidecar does not require a new node login.
 
 Remove entirely:
 
