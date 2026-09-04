@@ -308,7 +308,7 @@ recur while the CLI-versus-generator capture-time gap stays over 120s; it clears
 only once a daily run's gap falls under the 120s tolerance. Do not read a
 recurring warn as one that self-clears automatically, and do not loosen the
 tolerance to hide it. A permanent fix is tracked in the v1.1 backlog
-(wi_664b1447).
+(wi_7c4802fc-f46c-4c46-b10f-0ece2ac65dc0).
 
 To recognise a likely clock-gap warn on the page: the footer names the
 first mismatch only, one row whose quiet value differs from the CLI value by
