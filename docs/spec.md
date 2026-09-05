@@ -78,7 +78,7 @@ ruling before implementation.
    rename). It resolves reviewed-assignment membership and reads every ledger
    table required by the Terms below. Emits exactly the shape in `docs/data-contract.md`.
    Per item:
-   identity, state, time since last progress (the CLI's `sinceProgressMs`),
+   identity, state, time since last activity (the CLI's `sinceProgressMs`),
    running and queued turn
    state, pending wake, open and closed cards with outcomes, attest counts by
    kind and verdict kind, evidence stage on ATC's ladder, holders with name,
@@ -106,7 +106,7 @@ ruling before implementation.
    without touching it.
 6. **Parity check** `bin/tb-toplines-parity` on a daily systemd user timer.
    Runs `tightbeam toplines --as-user george` exactly once, then immediately
-   runs the generator and compares each open item's minutes-since-progress
+   runs the generator and compares each open item's time-since-last-activity
    (`sinceProgressMs`, tolerance 120 s), open and closed card counts and attest totals against
    that generated `toplines.json`. It also compares each item's stage against
    ATC's `/opt/tb-atc/web/data.json` (read, not requested). If a compared input
@@ -151,21 +151,38 @@ disagree, the authority wins and this Term is corrected to it.
 - **Assignment membership.** An assignment belongs to its non-null
   `workItemId`. Otherwise it belongs to the item resolved through its
   `reviewsAssignmentId` chain. One assignment belongs to at most one item.
-- **Quiet (milliseconds since progress).** Mirror the CLI's `sinceProgressMs`
-  exactly (D-d, ruled att_5ecfb687). `lastProgressAt` is the newest `progress`
-  attest timestamp on any member assignment of the item (Assignment
-  membership), else `null`. `sinceProgressMs` is `generatedAt` minus
-  `(lastProgressAt ?? createdAt)`. `work_items` has only a `createdAt` column —
-  there is no `startedAt`, so there is no `startedAt` fallback; the CLI's
-  algorithm reduces to `lastProgressAt ?? createdAt` for the same reason. The
-  contract field carrying the anchor is `lastProgressAt`. Parity tolerance is
-  120 s.
+- **Quiet (milliseconds since last activity).** Mirror the CLI's
+  `sinceProgressMs` exactly (D-d + PO ruling D19: the CLI is the authority for
+  this ledger-derived number; source `lib/tightbeam/execution_map.ex` `anchor/4`
+  + `node/2`, deployed CLI tag `sirius-build-84dd13e`). `sinceProgressMs =
+  generatedAt − anchor`. The anchor is the MAXIMUM of four groups: (1) the item's
+  `createdAt` floored at the coverage cutoff (the ledger's causal-events
+  attribution epoch — an item older than the cutoff cannot claim quiet from
+  before attribution was knowable); (2) the `endedAt` of every turn in the item's
+  turn-union (see Running); (3) the `ts` of every attest of ANY kind on a member
+  assignment; (4) the `at` of every `disposition_transition` causal event of the
+  item. Despite the field's historical name, the anchor is the latest activity of
+  ANY kind — not only `progress` attests — so filing any attest, ending any
+  attributed turn, or a state disposition each reset the clock. Member
+  assignments follow the Assignment-membership chain (own `workItemId`, else
+  `reviewsAssignmentId`): the same set Running and Wake-queued use, and unlike
+  Stage, which is direct-`workItemId` only. The CLI emits no anchor timestamp, so
+  neither does TopLines; `createdAt` (the real column) is still exposed and drives
+  the item's "started N ago" age display. Parity tolerance is 120 s.
 - **Running / wake queued.** Mirror the CLI's `active.runningTurn` and
-  `active.pendingSessionWake` (D-d). Running is true when any session holding a
-  current open member assignment of the item has a `turns` row with `startedAt`
-  set and `endedAt` null (equivalently `turns.status = 'running'`, the only
-  started-but-not-ended status). Wake queued is true when any such holder
-  session has a `wakes` row in state `pending`.
+  `active.pendingSessionWake` exactly (D-d + PO ruling D19; source
+  `lib/tightbeam/execution_map.ex` `node/2`, `turn_union/3`,
+  `pending_session_wake?/2`). Running is true when any turn in the item's
+  TURN-UNION has `status = 'running'`. The turn-union is every turn whose
+  `jobRef` is the item id, unioned with every turn whose `assignmentId` is a
+  member assignment, deduped by turn `seq`. It is turn-attributed, NOT
+  holder-session-scoped: a running turn attributed to the item by `jobRef` counts
+  even when no current holder session is running one. Wake queued is true when any
+  CURRENT open holder session (a session owning an open member assignment) has a
+  pending wake with `consumer = 'prompt'`. The `consumer = 'prompt'` filter is
+  load-bearing — scheduled/condition and other non-prompt wakes do not count —
+  and the test is session-keyed across all pending prompt wakes, not the set of
+  item-attributed wakes.
 - **Turn counts.** `turns.total` and `turns.live` count the turns threaded to
   the item through Assignment membership and rows whose `jobRef` is the item id;
   `live` counts those started and not ended. An item with no such turns is `0`,
@@ -309,9 +326,12 @@ Resolved (George `dr_9daadbe0`):
   `reference/atc-derivations.md` §3.
 
 Resolved earlier this pass (PO rulings att_5ecfb687):
-- **D-d** — Quiet, Running and wake-queued match the CLI's algorithm exactly;
-  Quiet reduces to `lastProgressAt ?? createdAt` because `work_items` has no
-  `startedAt` column. See Terms.
+- **D-d / D19** — Quiet, Running and wake-queued match the CLI's algorithm
+  exactly, corrected to the actual `lib/tightbeam/execution_map.ex` source (PO
+  ruling D19, "CLI wins"): Quiet anchors on the MAX of createdAt/cutoff, turn-ends,
+  every attest kind, and dispositions (not just `progress` attests); Running keys
+  on the item turn-union; wake-queued requires `consumer='prompt'`. See Terms and
+  `docs/decisions.md` D19.
 - **D-c** — the Stage ladder STRUCTURE matches the deployed ATC; the simplification
   is that TopLines omits ATC's separate git-derived `merged` field, not the stage.
 
