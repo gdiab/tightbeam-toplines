@@ -144,15 +144,65 @@ provenance before re-running; nothing was installed.
 
 Sidecar, once:
 
+The sidecar joins the tailnet with a **file-based** auth key. Never pass the key
+through a host environment variable or a command argument. A host-env key leaks to
+the ledger and to every agent's environment; an argv key leaks to the transcript.
+`containerboot` reads the key from the file itself, so the value never passes
+through env, argv, `cat`, `echo`, or `docker exec env`.
+
+1. **Remove any stale `toplines` node first.** In the admin console, delete an
+   existing `toplines` node before you bootstrap. A leftover node forces the new
+   node to register as `toplines-1` with URL `toplines-1.tailf064dc.ts.net`. If you
+   see a `-1` suffix, stop and report — do not work around it.
+
+2. **Generate the auth key.** In the admin console, create a Tailscale auth key.
+   Make it reusable, set a 90-day expiry, and tag it `tag:service-host`. List
+   `tag:service-host` under `tagOwners` in the ACL. A tagged key gives the node no
+   node-key expiry.
+
+3. **Place the key as a file** at
+   `/home/gd/.tightbeam/auth/tailscale/authkey`. Set the directory to mode `0700`
+   and the file to mode `0600`. Verify presence with `ls -l` only; never read the
+   value.
+
+4. **Write the serve boot-config** to
+   `~/.tightbeam/auth/tailscale/serve/tb-toplines-ts.json`:
+
+   ```json
+   {"TCP":{"443":{"HTTPS":true}},"Web":{"${TS_CERT_DOMAIN}:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:8898"}}}}}
+   ```
+
+5. **Bootstrap the container:**
+
+   ```sh
+   docker rm -f tb-toplines-ts
+   docker run -d --name tb-toplines-ts --restart unless-stopped --network host \
+     -e TS_USERSPACE=1 -e TS_HOSTNAME=toplines -e TS_STATE_DIR=/var/lib/tailscale \
+     -e TS_AUTHKEY=file:/run/secrets/ts-authkey -e TS_AUTH_ONCE=true \
+     -e TS_EXTRA_ARGS=--advertise-tags=tag:service-host \
+     -e TS_SERVE_CONFIG=/config/serve.json \
+     -v tb-toplines-ts-state:/var/lib/tailscale \
+     -v /home/gd/.tightbeam/auth/tailscale/authkey:/run/secrets/ts-authkey:ro \
+     -v /home/gd/.tightbeam/auth/tailscale/serve/tb-toplines-ts.json:/config/serve.json:ro \
+     tailscale/tailscale:latest
+   ```
+
+The auth state and the serve config persist in the `tb-toplines-ts-state` volume.
+`TS_AUTH_ONCE=true` means a restart reuses the persisted state and does not
+re-consume the key. Keep the key file in place for ops custody and 90-day rotation.
+Do not delete the file, and do not revoke the key.
+
+Verify:
+
 ```sh
-bin/tb-toplines-ts
-docker logs -f tb-toplines-ts        # follow the auth URL, approve the node in the admin console once
-docker exec tb-toplines-ts tailscale serve --bg http://127.0.0.1:8898
+docker restart tb-toplines-ts
+docker exec tb-toplines-ts tailscale status --json | grep -i '"BackendState"'   # expect "Running", not "NeedsLogin"
 docker exec tb-toplines-ts tailscale serve status
 ```
 
-Expected: `https://toplines.tailf064dc.ts.net (tailnet only)` proxying to
-`http://127.0.0.1:8898`. Do not run any of this against `tb-atc-ts`.
+Expected: `tailscale serve status` shows `https://toplines.tailf064dc.ts.net`
+proxying to `http://127.0.0.1:8898`. Confirm HTTP 200 from another tailnet device.
+Do not run any of this against `tb-atc-ts`.
 
 ## Verify
 
