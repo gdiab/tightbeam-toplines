@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Compare TopLines with its CLI and deployed-ATC authorities.
 
-The production path invokes ``tightbeam toplines --as-user george`` exactly
-once, runs the generator, and compares that fresh snapshot.  Tests can set
+The production path invokes ``tightbeam toplines --as-user <operator>`` exactly
+once, against the effective ledger's own Tightbeam instance, runs the generator,
+and compares that fresh snapshot. Tests can set
 TB_TOPLINES_CLI_JSON to a captured real response; that compare-only path never
 invokes Tightbeam or the generator.
 
@@ -24,13 +25,21 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 ROOT = Path(__file__).resolve().parent.parent
-DB_PATH = Path(
-    os.environ.get("TB_TOPLINES_DB", "/home/gd/.tightbeam/state.db")
-).expanduser()
+
+
+def resolve_ledger() -> Path:
+    override = os.environ.get("TB_TOPLINES_DB")
+    if override:
+        return Path(override).expanduser().resolve()
+    base = os.environ.get("TB_BASE_DIR") or str(Path.home() / ".tightbeam")
+    return (Path(base).expanduser() / "state.db").resolve()
+
+
+DB_PATH = resolve_ledger()
 OUT_PATH = Path(
     os.environ.get("TB_TOPLINES_OUT", str(ROOT / "web" / "toplines.json"))
 ).expanduser()
@@ -42,7 +51,7 @@ ATC_PATH = Path(
 ).expanduser()
 CLI_CAPTURE = os.environ.get("TB_TOPLINES_CLI_JSON")
 QUIET_TOLERANCE_MS = 120_000
-PACIFIC = ZoneInfo("America/Los_Angeles")
+TIMEZONE_NAME = os.environ.get("TB_TOPLINES_TZ", "").strip() or "UTC"
 STATE_HOME = Path(
     os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state"))
 ).expanduser()
@@ -78,19 +87,56 @@ def rows_by_id(value: Any, label: str) -> dict[str, dict[str, Any]]:
     return result
 
 
-def load_cli() -> tuple[dict[str, Any], bool]:
+def live_cli_context() -> tuple[str, Path, dict[str, str]]:
+    operator = os.environ.get("TB_TOPLINES_OPERATOR", "").strip()
+    if not operator:
+        raise RuntimeError(
+            "TB_TOPLINES_OPERATOR is unset; set the board operator (docs/runbook.md)"
+        )
+
+    base = DB_PATH.parent
+    gateway = base / "gateway.json"
+    try:
+        with gateway.open("rb") as handle:
+            handle.read(1)
+    except OSError as error:
+        raise RuntimeError(
+            "no readable gateway.json under the ledger base "
+            f"{base}; cannot target the ledger's own Tightbeam instance: {error}"
+        ) from error
+
+    child_env = os.environ.copy()
+    child_env.pop("TIGHTBEAM_URL", None)
+    child_env.pop("TIGHTBEAM_TOKEN", None)
+    child_env["TIGHTBEAM_BASE_DIR"] = str(base)
+    child_env["TIGHTBEAM_HOME"] = str(base)
+    return operator, base, child_env
+
+
+def load_cli(
+    context: tuple[str, Path, dict[str, str]] | None = None,
+) -> tuple[dict[str, Any], bool]:
     if CLI_CAPTURE is not None:
         return require_mapping(
             read_json(Path(CLI_CAPTURE).expanduser(), "CLI capture"),
             "CLI capture",
         ), True
 
-    completed = subprocess.run(
-        ["tightbeam", "toplines", "--as-user", "george"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
+    operator, _base, child_env = context or live_cli_context()
+    with tempfile.TemporaryDirectory(prefix="tb-toplines-parity-") as clean_name:
+        clean_cwd = Path(clean_name).resolve()
+        if any((path / ".tightbeam-session").exists() for path in (clean_cwd, *clean_cwd.parents)):
+            raise RuntimeError(
+                f"cannot create a clean CLI working directory under {clean_cwd}"
+            )
+        completed = subprocess.run(
+            ["tightbeam", "toplines", "--as-user", operator],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=child_env,
+            cwd=clean_cwd,
+        )
     if completed.returncode != 0:
         detail = completed.stderr.strip() or f"exit {completed.returncode}"
         raise RuntimeError(f"tightbeam toplines failed: {detail}")
@@ -107,7 +153,13 @@ def run_generator() -> None:
 
 
 def daily_attempt_path(ran_at: int) -> Path:
-    day = datetime.fromtimestamp(ran_at / 1_000, PACIFIC).date().isoformat()
+    try:
+        timezone = ZoneInfo(TIMEZONE_NAME)
+    except ZoneInfoNotFoundError as error:
+        raise RuntimeError(
+            f"TB_TOPLINES_TZ is not a valid IANA timezone: {TIMEZONE_NAME}"
+        ) from error
+    day = datetime.fromtimestamp(ran_at / 1_000, timezone).date().isoformat()
     return ATTEMPT_DIR / f"parity-attempt-{day}"
 
 
@@ -155,7 +207,7 @@ def resolve_membership(assignments: list[sqlite3.Row]) -> dict[str, str | None]:
 
 
 def item_states() -> dict[str, str]:
-    uri = f"file:{DB_PATH.resolve()}?mode=ro"
+    uri = f"{DB_PATH.resolve().as_uri()}?mode=ro"
     try:
         with sqlite3.connect(uri, uri=True) as connection:
             return dict(connection.execute("SELECT id, state FROM work_items"))
@@ -176,7 +228,7 @@ def changing_input(
     if not item_ids or snapshot_ms < start_ms:
         return None
 
-    uri = f"file:{DB_PATH.resolve()}?mode=ro"
+    uri = f"{DB_PATH.resolve().as_uri()}?mode=ro"
     connection = sqlite3.connect(uri, uri=True)
     connection.row_factory = sqlite3.Row
     try:
@@ -274,7 +326,7 @@ def changing_input(
 def first_mismatch(
     cli_items: dict[str, dict[str, Any]],
     top_items: dict[str, dict[str, Any]],
-    atc_items: dict[str, dict[str, Any]],
+    atc_items: dict[str, dict[str, Any]] | None,
 ) -> str | None:
     cli_ids = set(cli_items)
     top_ids = set(top_items)
@@ -311,14 +363,15 @@ def first_mismatch(
                 f"vs cli {cli_attests.get('total')!r}"
             )
 
-        atc_row = atc_items.get(item_id)
-        if atc_row is None:
-            return f"{item_id}: missing from ATC data"
-        if top_row.get("stage") != atc_row.get("stage"):
-            return (
-                f"{item_id}: stage {top_row.get('stage')!r} "
-                f"vs ATC {atc_row.get('stage')!r}"
-            )
+        if atc_items is not None:
+            atc_row = atc_items.get(item_id)
+            if atc_row is None:
+                return f"{item_id}: missing from ATC data"
+            if top_row.get("stage") != atc_row.get("stage"):
+                return (
+                    f"{item_id}: stage {top_row.get('stage')!r} "
+                    f"vs ATC {atc_row.get('stage')!r}"
+                )
     return None
 
 
@@ -343,17 +396,20 @@ def atomic_write(path: Path, value: dict[str, Any]) -> None:
 
 
 def classify_outcome(
-    changed: str | None, mismatch: str | None
+    changed: str | None, mismatch: str | None, atc_present: bool = True
 ) -> tuple[str, str | None]:
     if changed is not None:
         return "inconclusive", None
     if mismatch is not None:
         return "mismatch", mismatch
+    if not atc_present:
+        return "ok-ledger-atc-missing", None
     return "ok", None
 
 
 def main() -> int:
     compare_only = CLI_CAPTURE is not None
+    cli_context = None if compare_only else live_cli_context()
     before_states = {} if compare_only else item_states()
     ran_at = time.time_ns() // 1_000_000
     if not compare_only:
@@ -364,12 +420,17 @@ def main() -> int:
                 f"recorded at {daily_attempt_path(ran_at)}"
             )
             return 0
-    cli, compare_only = load_cli()
+    cli, compare_only = load_cli(cli_context)
     if not compare_only:
         run_generator()
 
     top = require_mapping(read_json(OUT_PATH, "TopLines snapshot"), "TopLines snapshot")
-    atc = require_mapping(read_json(ATC_PATH, "ATC data"), "ATC data")
+    atc_reason = None
+    try:
+        atc = require_mapping(read_json(ATC_PATH, "ATC data"), "ATC data")
+    except RuntimeError as error:
+        atc = None
+        atc_reason = str(error)
 
     coverage = require_mapping(cli.get("coverage"), "CLI coverage")
     coverage_basis = coverage.get("basis")
@@ -385,7 +446,7 @@ def main() -> int:
     top_open = {
         item_id: row for item_id, row in top_rows.items() if row.get("state") == "open"
     }
-    atc_rows = rows_by_id(atc.get("items"), "ATC items")
+    atc_rows = None if atc is None else rows_by_id(atc.get("items"), "ATC items")
 
     changed = None
     if not compare_only:
@@ -405,7 +466,7 @@ def main() -> int:
         )
 
     mismatch = first_mismatch(cli_open, top_open, atc_rows)
-    outcome, mismatch = classify_outcome(changed, mismatch)
+    outcome, mismatch = classify_outcome(changed, mismatch, atc is not None)
 
     parity = {
         "ranAt": ran_at,
@@ -415,10 +476,12 @@ def main() -> int:
         "changingInput": changed,
         "coverageBasis": coverage_basis,
         "edgeBasis": edge_basis,
+        "atcEvidence": "present" if atc is not None else "missing",
+        "atcEvidenceReason": atc_reason,
     }
     atomic_write(PARITY_PATH, parity)
     print(json.dumps(parity, ensure_ascii=False, separators=(",", ":")))
-    return 0 if outcome == "ok" else 1
+    return 0 if outcome in {"ok", "ok-ledger-atc-missing"} else 1
 
 
 if __name__ == "__main__":

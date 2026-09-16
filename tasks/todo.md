@@ -27,6 +27,9 @@
 - [ ] `bin/tb-toplines-parity` and its timer
 - [ ] `systemd/` user units
 - [ ] Pass time under 300 ms measured on sirius
+- [x] Portability R5: preserve the pinned `%h/tb-toplines` units and document/test
+  per-service `root.conf` overrides for an explicit absolute install directory
+- [x] Pre-merge fresh-install rehearsal from an exact candidate checkout
 
 ## Phase 3: deploy and accept
 
@@ -35,6 +38,8 @@
 - [ ] `docs/runbook.md` finished by the deployer; reviewer followed it
 - [ ] Nothing under ATC's paths changed (stat and docker inspect diffs on the card)
 - [ ] Reviewer verdict filed
+- [ ] After merge, run final fresh-install acceptance from the canonical GitHub
+  origin at the exact merged `main` commit; a local rehearsal does not satisfy it
 
 ## Later, outside this work
 

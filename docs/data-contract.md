@@ -11,6 +11,11 @@ from "zero".
   "schema": 1,
   "generatedAt": 1788322006642,
   "host": "sirius",
+  "config": {                         // runtime install configuration; no secrets
+    "operator": "maya",              // TB_TOPLINES_OPERATOR stripped; null when unset/blank
+    "atcUrl": "https://example.ts.net/atc", // safe http/https TB_TOPLINES_ATC_URL; null when unset/invalid
+    "tz": "Europe/Berlin"             // TB_TOPLINES_TZ, default UTC
+  },
   "passMs": 142,                        // generator wall time for this pass
   "footprint": {
     "dbBytes": 516587520,
@@ -18,12 +23,14 @@ from "zero".
   },
   "parity": {                           // merged from parity.json when present; the whole object is null until the first parity run
     "ranAt": 1788339600000,             // parity run wall clock; ALSO the stamp on coverageBasis/edgeBasis (Scope 6)
-    "outcome": "ok",                    // exactly one of "ok" | "mismatch" | "inconclusive"
+    "outcome": "ok",                    // "ok" | "ok-ledger-atc-missing" | "mismatch" | "inconclusive"
     "checked": 17,                      // open items compared this run
     "firstMismatch": null,              // outcome="mismatch": first mismatch only, e.g. "wi_8d658b1e: quiet 1810s vs cli 1620s" | stage; else null
     "changingInput": null,              // outcome="inconclusive": the compared input row that changed between the CLI start and the generator snapshot; else null
     "coverageBasis": "…",               // copied VERBATIM from the CLI response's coverage.basis; the generator never synthesizes it; null until first run
-    "edgeBasis": "…"                    // copied VERBATIM from the CLI response's edgeBasis; the generator never synthesizes it; null until first run
+    "edgeBasis": "…",                   // copied VERBATIM from the CLI response's edgeBasis; the generator never synthesizes it; null until first run
+    "atcEvidence": "present",           // "present" when local ATC data was read; "missing" when stage comparison was skipped
+    "atcEvidenceReason": null            // named local read/parse failure when atcEvidence="missing"; else null
   },
   "org": {
     "runningTurns": 3,                 // all turns.status = 'running' rows in this ledger snapshot, including unattributed rows
@@ -131,6 +138,12 @@ from "zero".
 }
 ```
 
+The install directory is deliberately absent from `config`. The pinned units
+default to `$HOME/tb-toplines`; an alternate absolute directory is selected by
+installer-written systemd `root.conf` drop-ins and by passing the same path to
+`tb-toplines-verify-install --root`. `TB_TOPLINES_ROOT` names that runbook choice,
+but no generator, watcher, server, or parity process reads it.
+
 ## Rules
 
 - `items` is sorted by `state` (open, iceboxed, failed) then `sinceProgressMs`
@@ -167,6 +180,9 @@ from "zero".
     §2 holds the source pin.
 - Unknown harness or model strings pass through as found in `sessions`.
 - The parity block is `null` until the first parity run.
+- `ok-ledger-atc-missing` means ledger-versus-CLI parity held while local ATC
+  stage evidence was unavailable. It exits successfully but remains visible on
+  the page. An ATC URL does not count as local evidence.
 - `schema` increments only on an incompatible change; the page refuses a
   higher `schema` than it knows and says so in the stale banner.
 

@@ -123,6 +123,7 @@ class DailyGuardTest(unittest.TestCase):
             parity_json = directory / "parity.json"
             atc_json = directory / "atc.json"
             db_path = directory / "state.db"
+            (directory / "gateway.json").write_text("{}\n", encoding="utf-8")
 
             item = {
                 "id": "wi_test",
@@ -207,6 +208,8 @@ class DailyGuardTest(unittest.TestCase):
                     "TB_TOPLINES_OUT": str(output_json),
                     "TB_TOPLINES_PARITY": str(parity_json),
                     "TB_TOPLINES_ATC_DATA": str(atc_json),
+                    "TB_TOPLINES_OPERATOR": "maya",
+                    "TB_TOPLINES_TZ": "UTC",
                     "TEST_CLI_LOG": str(cli_log),
                     "TEST_CLI_JSON": str(cli_json),
                     "TEST_GENERATOR_LOG": str(generator_log),

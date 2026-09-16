@@ -107,7 +107,7 @@ class InstallGateTest(unittest.TestCase):
             reloaded = load_gate()
             reloaded.PINS = dict(self.gate.PINS)
             # (a) env cannot redirect the default root.
-            self.assertEqual(reloaded.ROOT_DEFAULT, Path("/home/gd/tb-toplines"))
+            self.assertEqual(reloaded.ROOT_DEFAULT, Path.home() / "tb-toplines")
             # (b) verifying the source tree the runbook copies from aborts even
             #     though the env points at the clean 'good' tree.
             self.assertEqual(reloaded.main(["--root", str(bad)]), 1)

@@ -160,9 +160,9 @@ td.quiet{width:150px}
 <div class="wrap">
   <header class="top">
     <h1>TopLines</h1>
-    <span class="cmd mono">tightbeam toplines <b>--as-user george</b></span>
+    <span class="cmd mono">tightbeam toplines <b id="operator">--as-user &lt;operator&gt;</b></span>
     <span class="host"><i></i><span class="cmd">gateway on <span class="mono" id="host">—</span></span></span>
-    <a class="cmd" href="https://atc.tailf064dc.ts.net/" style="color:var(--ink-2)">ATC</a>
+    <a class="cmd" id="atc" hidden style="color:var(--ink-2)">ATC</a>
     <div class="meta"><span>snapshot <span class="mono" id="snap">loading</span></span><span>refresh 2 s</span>
       <span class="seg" id="theme" role="radiogroup" aria-label="Appearance"><button data-t="system" aria-checked="true" role="radio">system</button><button data-t="light" aria-checked="false" role="radio">light</button><button data-t="dark" aria-checked="false" role="radio">dark</button></span></div>
   </header>
@@ -281,7 +281,7 @@ function renderVitals(){
   $('#vitals').innerHTML=`
     <div class="vital ${running?'live':''}"><span class="lbl">Running turns</span><span class="num mono">${running}</span><span class="sub">${running===1?'turn running right now':running?'turns running right now':'no turn is running'}</span></div>
     <div class="vital"><span class="lbl">Wakes queued</span><span class="num mono">${org.wakesPending||0}</span><span class="sub">${next?`next fires <span class="mono">${esc(dueText(next.dueAt))}</span>`:'no scheduled wakes'}</span></div>
-    <div class="vital ${decisions?'alert':''}"><span class="lbl">Needs your ruling</span><span class="num mono">${decisions}</span><span class="sub">${decisions?'decision requests waiting on George':'nothing waiting on George'}</span></div>
+    <div class="vital ${decisions?'alert':''}"><span class="lbl">Needs your ruling</span><span class="num mono">${decisions}</span><span class="sub">${decisions?'decision requests waiting on the operator':'nothing waiting on the operator'}</span></div>
     <div class="vital"><span class="lbl">Open items</span><span class="num mono">${open}</span><span class="sub">${data.items.filter(item=>item.state==='open'&&item.sinceProgressMs<86400000).length} touched in the last day</span></div>
     <div class="vital"><span class="lbl">Iceboxed · failed</span><span class="num mono">${iceboxed} <span style="color:var(--muted)">·</span> ${failed}</span><span class="sub">${closed} closed, not shown</span></div>
     <div class="vital"><span class="lbl">Sessions</span><span class="num mono">${sessions.total||0}</span>
@@ -420,9 +420,28 @@ function renderFooter(){
     parityText=`parity ${parity.outcome==='mismatch'?'warning: mismatch':parity.outcome}, ${formatTime(parity.ranAt)} · checked ${parity.checked}`;
     if(parity.firstMismatch) parityText+=` · ${parity.firstMismatch}`;
     if(parity.changingInput) parityText+=` · changing input: ${parity.changingInput}`;
+    if((parity.atcEvidence||'present')==='missing') parityText+=' · ATC stage evidence unavailable';
   }
   $('#foot').dataset.parity=parity?parity.outcome:'none';
   $('#foot').innerHTML=`<span>${esc(parityText)}</span><span>coverage basis: ${esc(parity&&parity.coverageBasis!=null?parity.coverageBasis:'not available')}</span><span>edge basis: ${esc(parity&&parity.edgeBasis!=null?parity.edgeBasis:'not available')}</span><span>pass ${data.passMs} ms · db ${Math.round(data.footprint.dbBytes/1048576)} MiB · WAL ${Math.round(data.footprint.walBytes/1048576)} MiB</span><span>quiet = time since last activity</span><span>closed items (${data.org.items.closed||0}) omitted; read them with work-item-trace</span>`;
+}
+
+function renderConfig(){
+  const config=data.config||{};
+  const operator=typeof config.operator==='string'&&config.operator.trim()?config.operator.trim():'<operator>';
+  $('#operator').textContent=`--as-user ${operator}`;
+  const atc=$('#atc');
+  atc.hidden=true;
+  atc.removeAttribute('href');
+  if(typeof config.atcUrl==='string'){
+    try{
+      const target=new URL(config.atcUrl);
+      if(target.protocol==='http:'||target.protocol==='https:'){
+        atc.href=target.href;
+        atc.hidden=false;
+      }
+    }catch(error){}
+  }
 }
 
 function render(next){
@@ -430,6 +449,7 @@ function render(next){
   itemsById=new Map(data.items.map(item=>[item.id,item]));
   $('#host').textContent=data.host;
   $('#snap').textContent=formatTime(data.generatedAt);
+  renderConfig();
   renderVitals();
   renderFilters();
   renderRows();

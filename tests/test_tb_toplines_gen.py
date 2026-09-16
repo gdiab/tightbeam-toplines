@@ -98,7 +98,7 @@ class RunningTurnCountTest(unittest.TestCase):
                 ),
             )
 
-    def generate(self) -> dict[str, object]:
+    def generate(self, **extra_environment: str) -> dict[str, object]:
         environment = os.environ.copy()
         environment.update(
             {
@@ -107,6 +107,7 @@ class RunningTurnCountTest(unittest.TestCase):
                 "TB_TOPLINES_PARITY": str(self.directory / "missing-parity.json"),
             }
         )
+        environment.update(extra_environment)
         result = subprocess.run(
             [sys.executable, str(SCRIPT)],
             capture_output=True,
@@ -137,6 +138,21 @@ class RunningTurnCountTest(unittest.TestCase):
         self.insert_turn(1, "queued", assignment_id="asg_test")
         self.insert_turn(2, "delivered", assignment_id="asg_test", ended_at=300)
         self.assertEqual(self.generate()["org"]["runningTurns"], 0)
+
+    def test_non_george_install_config_is_emitted(self) -> None:
+        snapshot = self.generate(
+            TB_TOPLINES_OPERATOR="maya",
+            TB_TOPLINES_ATC_URL="https://example.ts.net/atc",
+            TB_TOPLINES_TZ="Europe/Berlin",
+        )
+        self.assertEqual(
+            snapshot["config"],
+            {
+                "operator": "maya",
+                "atcUrl": "https://example.ts.net/atc",
+                "tz": "Europe/Berlin",
+            },
+        )
 
 
 if __name__ == "__main__":

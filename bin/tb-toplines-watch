@@ -21,11 +21,8 @@
 #   TB_TOPLINES_BEAT   seconds between heartbeat passes (default 30)
 set -u
 
-BASE="${TB_BASE_DIR:-$HOME/.tightbeam}"
-DB="${TB_TOPLINES_DB:-$BASE/state.db}"
 GEN="${TB_TOPLINES_GEN:-$(dirname "$0")/tb-toplines-gen}"
 
-TB_TOPLINES_WATCH_DB="$DB" \
 TB_TOPLINES_WATCH_GEN="$GEN" \
 python3 -u - <<'PY'
 import os
@@ -36,7 +33,16 @@ import time
 from pathlib import Path
 from urllib.parse import quote
 
-db = Path(os.environ["TB_TOPLINES_WATCH_DB"]).expanduser().resolve()
+
+def resolve_ledger() -> Path:
+    override = os.environ.get("TB_TOPLINES_DB")
+    if override:
+        return Path(override).expanduser().resolve()
+    base = os.environ.get("TB_BASE_DIR") or str(Path.home() / ".tightbeam")
+    return (Path(base).expanduser() / "state.db").resolve()
+
+
+db = resolve_ledger()
 gen = os.environ["TB_TOPLINES_WATCH_GEN"]
 min_gap = float(os.environ.get("TB_TOPLINES_MINGAP", "2"))
 pulse = float(os.environ.get("TB_TOPLINES_PULSE", "0.5"))
@@ -60,6 +66,7 @@ def generate(reason: str) -> float:
 # PRAGMA data_version does not open a read transaction, so this connection can
 # remain alive across sleeps without holding a WAL snapshot or checkpoint lock.
 uri = f"file:{quote(str(db), safe='/')}?mode=ro"
+print(f"tb-toplines-watch: ledger_uri={uri}", file=sys.stderr, flush=True)
 con = sqlite3.connect(uri, uri=True)
 seen = con.execute("PRAGMA data_version").fetchone()[0]
 pending = False

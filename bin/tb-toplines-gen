@@ -6,7 +6,7 @@ events and previously grew state.db until the host failed (clickety-clacks/
 tightbeam#10).  Each pass uses one short read transaction on a mode=ro URI.
 
 Test seams:
-  TB_TOPLINES_DB      Ledger path (default: /home/gd/.tightbeam/state.db)
+  TB_TOPLINES_DB      Ledger path (default: $TB_BASE_DIR/state.db)
   TB_TOPLINES_OUT     Snapshot path (default: ../web/toplines.json)
   TB_TOPLINES_PARITY  Parity sidecar path (default: ../web/parity.json)
 
@@ -27,12 +27,35 @@ import time
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 
 ROOT = Path(__file__).resolve().parent.parent
-DB_PATH = Path(
-    os.environ.get("TB_TOPLINES_DB", "/home/gd/.tightbeam/state.db")
-).expanduser()
+
+
+def resolve_ledger() -> Path:
+    override = os.environ.get("TB_TOPLINES_DB")
+    if override:
+        return Path(override).expanduser().resolve()
+    base = os.environ.get("TB_BASE_DIR") or str(Path.home() / ".tightbeam")
+    return (Path(base).expanduser() / "state.db").resolve()
+
+
+def configured_atc_url() -> str | None:
+    raw = os.environ.get("TB_TOPLINES_ATC_URL", "").strip()
+    if not raw:
+        return None
+    parsed = urlparse(raw)
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        return raw
+    print(
+        "tb-toplines-gen: ignoring unsafe or malformed TB_TOPLINES_ATC_URL",
+        file=sys.stderr,
+    )
+    return None
+
+
+DB_PATH = resolve_ledger()
 OUT_PATH = Path(
     os.environ.get("TB_TOPLINES_OUT", str(ROOT / "web" / "toplines.json"))
 ).expanduser()
@@ -494,6 +517,11 @@ def generate() -> dict[str, Any]:
             "walBytes": wal_bytes,
         },
         "parity": load_parity(PARITY_PATH),
+        "config": {
+            "operator": os.environ.get("TB_TOPLINES_OPERATOR", "").strip() or None,
+            "atcUrl": configured_atc_url(),
+            "tz": os.environ.get("TB_TOPLINES_TZ", "").strip() or "UTC",
+        },
         **projection,
     }
     snapshot["passMs"] = (time.perf_counter_ns() - started) // 1_000_000
