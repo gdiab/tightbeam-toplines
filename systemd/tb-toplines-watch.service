@@ -4,8 +4,9 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/gd/tb-toplines
-ExecStart=/home/gd/tb-toplines/bin/tb-toplines-watch
+EnvironmentFile=-%h/.config/tb-toplines/toplines.env
+WorkingDirectory=%h/tb-toplines
+ExecStart=%h/tb-toplines/bin/tb-toplines-watch
 Restart=on-failure
 
 [Install]

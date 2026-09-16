@@ -3,6 +3,7 @@ Description=Check TopLines parity against Tightbeam and ATC
 
 [Service]
 Type=oneshot
-Environment=PATH=/home/gd/.tightbeam/bin:/home/gd/.local/bin:/home/gd/.volta/bin:/usr/local/bin:/usr/bin:/bin
-WorkingDirectory=/home/gd/tb-toplines
-ExecStart=/home/gd/tb-toplines/bin/tb-toplines-parity
+Environment=PATH=%h/.tightbeam/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=-%h/.config/tb-toplines/toplines.env
+WorkingDirectory=%h/tb-toplines
+ExecStart=%h/tb-toplines/bin/tb-toplines-parity

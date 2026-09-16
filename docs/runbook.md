@@ -1,11 +1,13 @@
-# Runbook: TopLines on sirius
+# Runbook: TopLines
 
-Everything here runs as `gd`. Nothing needs root.
+Run TopLines as the installing user. Nothing needs root. Set `INSTALL_DIR` to an
+absolute directory that the user owns; it defaults to `$HOME/tb-toplines`. The
+Sirius migration section records that host's explicit values separately.
 
 ## Layout on the host
 
 ```
-/home/gd/tb-toplines/
+$INSTALL_DIR/                    default: $HOME/tb-toplines
   bin/tb-toplines-watch      watcher (bash + inline python)
   bin/tb-toplines-gen        generator (python 3.12, stdlib)
   bin/tb-toplines-serve      static server (python 3.12, stdlib)
@@ -19,11 +21,18 @@ Everything here runs as `gd`. Nothing needs root.
   tb-toplines.service        serve
   tb-toplines-watch.service  watch + gen
   tb-toplines-parity.service oneshot
-  tb-toplines-parity.timer   daily 03:00 America/Los_Angeles
+  tb-toplines-parity.timer   daily 03:00 in the configured install timezone
+$HOME/.config/tb-toplines/
+  toplines.env               per-install configuration (mode 0600)
+$HOME/.config/systemd/user/tb-toplines-parity.timer.d/
+  schedule.conf              install-time timezone schedule
+$HOME/.config/systemd/user/tb-toplines{,-watch,-parity}.service.d/
+  root.conf                  only for a non-default install directory
 ```
 
-Ledger: `/home/gd/.tightbeam/state.db`, opened `file:...?mode=ro` everywhere.
-Port: 127.0.0.1:8898. Hostname: `https://toplines.tailf064dc.ts.net/`.
+The ledger defaults to `$HOME/.tightbeam/state.db`. Generator, watcher, and
+parity resolve it identically and open it with `file:...?mode=ro`. Port
+`127.0.0.1:8898` remains fixed.
 
 ## Landing this to `main` (`dr_b1b03664`)
 
@@ -36,22 +45,21 @@ the canonical Install below cannot run until that merge lands.
 
 ## Install sources
 
-Install clones from one of two sources; the install-provenance gate below runs
-identically against whichever one you clone, so provenance is guaranteed either
-way.
+Final acceptance uses the canonical origin. A local source may be used only to
+rehearse the same procedure before merge.
 
 1. **Canonical / steady-state (`spec.md` Scope-7):**
    `https://github.com/gdiab/tightbeam-toplines.git` (`main`). This is the shipped,
    permanent install method, used once the gated merge (`dr_b1b03664`) has landed
    the reviewed code on `main`.
 
-2. **Pre-merge acceptance-demo stand-in:** `/home/gd/tb-toplines-reviewed.git`, a
+2. **Historical pre-merge rehearsal stand-in:** `/home/gd/tb-toplines-reviewed.git`, a
    durable, local, `gd`-owned bare repo. GitHub `main` is unpopulated until the
-   post-acceptance merge, so this stand-in is used **now** for acceptance and for
-   the reviewer walkthrough. Its tree is SHA-matched to the pin table — the same
+   post-acceptance merge, so this stand-in may be used **only** for a pre-merge
+   reviewer rehearsal. Its tree is SHA-matched to the pin table — the same
    ten reviewed artifacts, each verified — so the gate passes on it exactly as it
    will on `main` post-merge. This is a pre-merge stand-in, **not** a permanent
-   deviation: the reviewed heads and the corrected-integ head were reaped once
+   deviation and cannot satisfy final A7 acceptance. The reviewed heads and the corrected-integ head were reaped once
    when their build sessions retired, and this reap-proof repo holds the recovered
    reviewed tree until `main` carries it. It is local only, never pushed outward.
 
@@ -68,7 +76,7 @@ mismatch stops the sequence before systemd sees anything.
 
 ```sh
 bin/tb-toplines-verify-install            # exit 0 = every artifact matches; exit 1 = abort
-bin/tb-toplines-verify-install --root /path/to/tree   # verify a tree other than /home/gd/tb-toplines
+bin/tb-toplines-verify-install --root /path/to/tree   # verify a tree other than $HOME/tb-toplines
 ```
 
 ### Pinned reviewed-clean artifacts
@@ -80,10 +88,10 @@ excluded**: it is the gate's own host file, and a gate cannot pre-verify the
 document that carries it. (The redeploy verifier counted an "eleventh" artifact;
 that was this runbook, excluded here for exactly that reason.)
 
-The unchanged pins retain the provenance of the reviewed product on sirius,
-which is be525345's corrected redeploy materialised on disk. The generator and
-page pins identify the 2026-09-16 running-turn correction release candidate.
-Install that candidate only after independent review clears its exact commit.
+The unchanged pins retain the provenance of the reviewed product on Sirius.
+The changed pins identify portability R5 and preserve the 2026-09-16
+running-turn correction. Install this candidate only after independent review
+clears its exact commit.
 The prior-release provenance basis is PO-locked (verbatim below);
 `docs/runbook.md` is not gate-pinned (the gate's own host file) but appears in
 the provenance record.
@@ -96,56 +104,163 @@ TIER B (independent reviewer-commit-anchored + installed==pin + redeploy record 
 docs/runbook.md = reviewed 26a3641 base + the R1-reviewed newly-authored install-gate delta -- provenance is reviewed-base + THIS (R1) review, NOT a 26a3641 cryptographic match.
 RESIDUAL: Tier-B installed<->reviewed-commit link is reviewer-anchored + functional, NOT blob-cryptographic. Do NOT cite att#6/att_d117b2c2 or the superseded pre-D19 page sha b39347c8.
 
-CURRENT RELEASE CANDIDATE (wi_3afff16d): generator and page carry the 2026-09-16 running-turn headline correction. Install only after independent review clears the exact candidate commit that contains these pins.
+CURRENT RELEASE CANDIDATE (wi_06502874): portability R5 across generator, watcher, parity, page and systemd preserves the running-turn headline. Install only after independent review clears the exact candidate commit that contains these pins.
 ```
 
 Full pin values (the ten gate-verified artifacts):
 
 | Deployed artifact | sha256 |
 |---|---|
-| `bin/tb-toplines-gen` | `a53e39869c62c47bf886f62e96560c38e82679c7e41f0d7a20eb3df28309884a` |
-| `bin/tb-toplines-parity` | `09de23f15f7d560b1450a96f70033abf5ca7d2332c74a88b20ac4455d376ff4e` |
+| `bin/tb-toplines-gen` | `355ce9a53dc834aebb7a63e71e49dc6d312b6b1a6b8eb832e4b1244dae4af28b` |
+| `bin/tb-toplines-parity` | `e8a85979b0c06fe5906bac894461327e3eb9460c72d94403a332a12fa9dbdd51` |
 | `bin/tb-toplines-serve` | `81e905f676f45e2a9270292d1fdf23b09fc29fc49ac4041f959de538bcc44182` |
-| `bin/tb-toplines-watch` | `7f5497002ae3be05182d3066aea711db1766c15ccf3855af3c237f96b4cc3e81` |
+| `bin/tb-toplines-watch` | `34a4ea6f193bb987275bd02214caf1e132ab4b992b55f097c7f82b75675b26e0` |
 | `bin/tb-toplines-ts` | `cd307aedea5cc010075f3e4355a3c12b26237e3501a56e156784e3ccd554b506` |
-| `web/index.html` | `8aec36ce296ed1648df11ee1e991562e44703a3bc6ce3898546c7ba5705e75cc` |
-| `systemd/tb-toplines.service` | `5beb3ed03a4019327137885334aa03090bb3f1fa579547edc4018c97842da33d` |
-| `systemd/tb-toplines-watch.service` | `2f94734e69daffd84faef63cd37374add89edac18af64a20e1c76f465d00fdc7` |
-| `systemd/tb-toplines-parity.service` | `d070d2ca776972a199cd9a9ebf8e683f9b9195f72dca4a1d919e0f615229373b` |
-| `systemd/tb-toplines-parity.timer` | `bd7d6af51b2503959d7bd2349dec069274365882d61b999c6366a381d329137a` |
+| `web/index.html` | `41e39191a971950b1e6832de1c5a019d42ac841d23cf91879bd721d8466282aa` |
+| `systemd/tb-toplines.service` | `7a8e4a03d6851fb71d9432839662060860088f5a5384575e66cd9831335c5abe` |
+| `systemd/tb-toplines-watch.service` | `e909efac9770a0276d82552499389fa98415167a1164a84c82ad747d17dd329a` |
+| `systemd/tb-toplines-parity.service` | `82fd7d165dc4f1314cbe9c8958ed860cb3f49e26b96f1ded1f0e13f566a86ad8` |
+| `systemd/tb-toplines-parity.timer` | `9c06b0c70221e005f2a4e64ac7faf440798ff37f638f3745e7e85723fc6e089a` |
 
 The pins are the whole set the gate protects, held in the `PINS` table inside
 `bin/tb-toplines-verify-install`. A new reviewed release that intentionally
 changes an artifact updates its pin in the same change, under review; otherwise
 the gate will (correctly) abort on the drift.
 
-## Install
+## Fresh install
 
-Clone one source, then the gate runs first: nothing is copied or activated unless
-every artifact matches its reviewed-clean pin.
+For final acceptance, clone the canonical origin after the reviewed change is
+merged to `main`, check out the exact merged commit, and record it. Before merge,
+a SHA-matched local clone may rehearse these commands, but that rehearsal does
+not satisfy final A7 acceptance. The gate runs first: nothing is copied or
+activated unless every artifact matches its reviewed-clean pin.
+
+```sh
+INSTALL_DIR="${TB_TOPLINES_ROOT:-$HOME/tb-toplines}"
+case "$INSTALL_DIR" in /*) ;; *) echo "INSTALL_DIR must be absolute" >&2; exit 2;; esac
+git clone https://github.com/gdiab/tightbeam-toplines.git "$INSTALL_DIR"
+cd "$INSTALL_DIR"
+MERGED_COMMIT=PASTE_EXACT_40_HEX_MERGED_MAIN_COMMIT
+git fetch origin main
+git checkout --detach "$MERGED_COMMIT"
+test "$(git rev-parse HEAD)" = "$MERGED_COMMIT"
+git rev-parse HEAD
+bin/tb-toplines-verify-install --root "$INSTALL_DIR"
+
+mkdir -p "$HOME/.config/tb-toplines" \
+  "$HOME/.config/systemd/user/tb-toplines-parity.timer.d"
+install -m 0600 /dev/null "$HOME/.config/tb-toplines/toplines.env"
+cat >"$HOME/.config/tb-toplines/toplines.env" <<EOF
+TB_TOPLINES_OPERATOR=maya
+# TB_BASE_DIR=$HOME/.tightbeam
+# TB_TOPLINES_ATC_URL=https://atc.example.ts.net/
+# TB_TOPLINES_ATC_DATA=/opt/tb-atc/web/data.json
+TB_TOPLINES_TZ=Europe/Berlin
+EOF
+
+TB_TOPLINES_TZ=Europe/Berlin
+cat >"$HOME/.config/systemd/user/tb-toplines-parity.timer.d/schedule.conf" <<EOF
+[Timer]
+OnCalendar=
+OnCalendar=*-*-* 03:00:00 $TB_TOPLINES_TZ
+EOF
+
+cp systemd/*.service systemd/*.timer "$HOME/.config/systemd/user/"
+
+if test "$INSTALL_DIR" != "$HOME/tb-toplines"; then
+  for pair in \
+    "tb-toplines.service tb-toplines-serve" \
+    "tb-toplines-watch.service tb-toplines-watch" \
+    "tb-toplines-parity.service tb-toplines-parity"
+  do
+    set -- $pair
+    mkdir -p "$HOME/.config/systemd/user/$1.d"
+    cat >"$HOME/.config/systemd/user/$1.d/root.conf" <<EOF
+[Service]
+WorkingDirectory=$INSTALL_DIR
+ExecStart=
+ExecStart=$INSTALL_DIR/bin/$2
+EOF
+  done
+fi
+systemctl --user daemon-reload
+systemctl --user enable --now \
+  tb-toplines.service tb-toplines-watch.service tb-toplines-parity.timer
+```
+
+Replace `maya`, `Europe/Berlin`, and optional ATC values with this install's
+values. `TB_TOPLINES_OPERATOR` is required for live parity and has no default.
+`TB_TOPLINES_ATC_URL` is optional and controls only the page link.
+`TB_TOPLINES_ATC_DATA` controls the local read-only stage evidence and defaults
+to `/opt/tb-atc/web/data.json`. `TB_BASE_DIR` defaults to `$HOME/.tightbeam` and
+selects both `state.db` and its sibling `gateway.json`. `TB_TOPLINES_DB` is the
+higher-precedence test/advanced override; live parity then requires
+`gateway.json` beside that database. `TB_TOPLINES_TZ` defaults to UTC and must
+match the timezone in `schedule.conf`. An invalid IANA timezone makes parity
+fail loudly. `TB_TOPLINES_ROOT` is only a shell/runbook choice: no binary reads
+it. A non-default directory is effective only through the three unpinned
+`root.conf` files above. The parity service's PATH and EnvironmentFile remain
+under `%h` because Tightbeam and install configuration remain in the user's home.
+
+## Sirius migration
+
+Preserve Sirius behavior by writing these explicit values before restarting:
 
 ```sh
 ssh gd@sirius.tailf064dc.ts.net
-
-# Canonical / steady-state (post-merge) — spec Scope-7:
-git clone https://github.com/gdiab/tightbeam-toplines.git ~/tb-toplines
-
-# Pre-merge acceptance-demo stand-in (use this NOW; main is unpopulated):
-# git clone /home/gd/tb-toplines-reviewed.git ~/tb-toplines
-
-cd ~/tb-toplines
-bin/tb-toplines-verify-install --root "$PWD" \
-  && cp systemd/*.service systemd/*.timer ~/.config/systemd/user/ \
-  && systemctl --user daemon-reload \
-  && systemctl --user enable --now tb-toplines.service tb-toplines-watch.service tb-toplines-parity.timer
+INSTALL_DIR="$HOME/tb-toplines"
+cd "$INSTALL_DIR"
+bin/tb-toplines-verify-install --root "$INSTALL_DIR"
+mkdir -p "$HOME/.config/tb-toplines" \
+  "$HOME/.config/systemd/user/tb-toplines-parity.timer.d"
+cat >"$HOME/.config/tb-toplines/toplines.env" <<'EOF'
+TB_TOPLINES_OPERATOR=george
+TB_BASE_DIR=/home/gd/.tightbeam
+TB_TOPLINES_ATC_URL=https://atc.tailf064dc.ts.net/
+TB_TOPLINES_ATC_DATA=/opt/tb-atc/web/data.json
+TB_TOPLINES_TZ=America/Los_Angeles
+EOF
+chmod 0600 "$HOME/.config/tb-toplines/toplines.env"
+cat >"$HOME/.config/systemd/user/tb-toplines-parity.timer.d/schedule.conf" <<'EOF'
+[Timer]
+OnCalendar=
+OnCalendar=*-*-* 03:00:00 America/Los_Angeles
+EOF
+cp systemd/*.service systemd/*.timer "$HOME/.config/systemd/user/"
+systemctl --user daemon-reload
+systemctl --user restart tb-toplines-watch tb-toplines
+systemctl --user enable --now tb-toplines-parity.timer
 ```
 
-`--root "$PWD"` makes the gate verify exactly the checkout that the `cp` then
+Sirius uses the default `$HOME/tb-toplines`, so do not create any service
+`root.conf` drop-in there.
+
+Verify the effective configuration without printing secrets:
+
+```sh
+systemctl --user show tb-toplines.service -p WorkingDirectory -p ExecStart
+systemctl --user show tb-toplines-watch.service -p EnvironmentFiles -p WorkingDirectory -p ExecStart
+systemctl --user show tb-toplines-parity.service -p EnvironmentFiles -p Environment -p WorkingDirectory -p ExecStart
+systemctl --user cat tb-toplines-parity.timer
+curl -s http://127.0.0.1:8898/toplines.json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["config"], d["org"]["runningTurns"], d.get("parity"))'
+```
+
+The timer must show one 03:00 Pacific schedule. The snapshot must show operator
+`george`, the existing ATC URL, and timezone `America/Los_Angeles`. The served
+page must keep the same ATC destination and the running-turn count semantics
+from `b922a5d`.
+
+`--root "$INSTALL_DIR"` makes the gate verify exactly the checkout that the `cp` then
 installs from, so the tree that is verified and the tree that is installed can
 never differ. The gate is identical for both sources. If it prints `ABORT`, stop: the clone
 does not match the reviewed-clean set — an artifact was altered, or (for the
 canonical source) `main` has not yet been merged with the reviewed heads. Resolve
 provenance before re-running; nothing was installed.
+
+## Sirius-only sidecar and tailnet setup
+
+These paths, hostnames, and credentials apply only to Sirius. Other installs
+use their own tailnet values.
 
 Sidecar, once:
 
@@ -212,7 +327,8 @@ Do not run any of this against `tb-atc-ts`.
 ## Verify
 
 ```sh
-bin/tb-toplines-verify-install    # expect: OK — all 10 deployed artifacts match the reviewed-clean pin set
+INSTALL_DIR="${TB_TOPLINES_ROOT:-$HOME/tb-toplines}"
+bin/tb-toplines-verify-install --root "$INSTALL_DIR"  # expect: OK — all 10 deployed artifacts match
 systemctl --user status tb-toplines tb-toplines-watch --no-pager
 journalctl --user -u tb-toplines -n 20 --no-pager
 journalctl --user -u tb-toplines-watch -n 20 --no-pager
@@ -225,51 +341,101 @@ grep -n 'mode=ro' bin/tb-toplines-gen bin/tb-toplines-watch bin/tb-toplines-pari
 From a tailnet device, open the hostname; the browser's network panel should
 show same-origin requests only.
 
+## Release evidence and notification
+
+Before merge, record an independent reviewed-clean verdict for the exact
+candidate commit. Record the local install walkthrough as pre-merge rehearsal.
+After merge, final A7 acceptance must clone or fetch the canonical GitHub origin
+at the exact merged `main` commit and record `git rev-parse HEAD`; local sources
+cannot supply this final proof. Include the canonical origin commit, the installed revision
+and file equivalence, the effective configuration, the served snapshot and
+page result, and the commands with their exact output. Record the operator,
+ATC URL and local data path, base directory and effective ledger, timezone, and
+install root. Preserve before-and-after evidence that `/opt/tb-atc`,
+`/usr/local/bin/tb-weather-*`, the `tb-atc-ts` container, and Tailscale serve
+state did not change.
+
+After origin and Sirius both pass, Notify George through Main with the PR and
+commit, deployed verification, installer values, and remaining limitations.
+Retain delivery ownership until both origin and Sirius are verified.
+
 ## Fresh-shell walkthrough (reviewer)
 
-Run this verbatim in a fresh shell on sirius as `gd` to exercise the gate through
-install, verify, and rollback. It clones the pre-merge acceptance-demo stand-in
-(`/home/gd/tb-toplines-reviewed.git`, since GitHub `main` is not yet populated)
-and works entirely in scratch directories: it never touches the live board, the
-real systemd units under `~/.config/systemd/user`, or ATC.
+Run this in a fresh shell to exercise an explicit install directory, the gate,
+the service drop-ins, verify, and rollback. It works entirely in scratch
+directories and never touches the live board, the real systemd units, or ATC.
+After merge, final A7 acceptance must use the canonical URL and exact merged
+commit shown below. Before merge, replace `SOURCE` with a SHA-matched local
+stand-in and record the result as **pre-merge rehearsal only**. The old
+`/home/gd/tb-toplines-reviewed.git` source is historical provenance only.
 
 ```sh
 set -eu
-STAGE="$(mktemp -d)/tb-toplines"     # scratch install root
-SYSD="$(mktemp -d)"                   # scratch systemd dir (real units untouched)
-git clone -q /home/gd/tb-toplines-reviewed.git "$STAGE"   # pre-merge stand-in source
-cd "$STAGE"
+SCRATCH="$(mktemp -d)"
+HOME="$SCRATCH/non-gd-home"
+INSTALL_DIR="$SCRATCH/srv-toplines"  # explicit root outside HOME/tb-toplines
+SYSD="$HOME/.config/systemd/user"
+SOURCE=https://github.com/gdiab/tightbeam-toplines.git
+MERGED_COMMIT=PASTE_EXACT_40_HEX_MERGED_MAIN_COMMIT
+mkdir -p "$HOME" "$SYSD"
+git clone -q "$SOURCE" "$INSTALL_DIR"
+cd "$INSTALL_DIR"
+git checkout --detach "$MERGED_COMMIT"
+test "$(git rev-parse HEAD)" = "$MERGED_COMMIT"
+git rev-parse HEAD
 
 # 1. INSTALL (gated): units are staged only if every artifact matches its pin.
-bin/tb-toplines-verify-install --root "$STAGE" \
+bin/tb-toplines-verify-install --root "$INSTALL_DIR" \
   && cp systemd/*.service systemd/*.timer "$SYSD/" \
   && echo "install: units staged into $SYSD"
 # expect: OK — all 10 deployed artifacts match ... ; install: units staged
 
+for pair in \
+  "tb-toplines.service tb-toplines-serve" \
+  "tb-toplines-watch.service tb-toplines-watch" \
+  "tb-toplines-parity.service tb-toplines-parity"
+do
+  set -- $pair
+  mkdir -p "$SYSD/$1.d"
+  cat >"$SYSD/$1.d/root.conf" <<EOF
+[Service]
+WorkingDirectory=$INSTALL_DIR
+ExecStart=
+ExecStart=$INSTALL_DIR/bin/$2
+EOF
+done
+
+for unit in tb-toplines.service tb-toplines-watch.service tb-toplines-parity.service; do
+  cat "$SYSD/$unit" "$SYSD/$unit.d/root.conf"
+done
+# expect: each effective WorkingDirectory and final ExecStart names INSTALL_DIR.
+# In final acceptance, confirm the live manager with:
+# systemctl --user show -p WorkingDirectory -p ExecStart <each service>
+
 # 2. FAIL-CLOSED PROOF: alter one artifact; the gate aborts and nothing stages.
-printf '\n# tampered\n' >> "$STAGE/bin/tb-toplines-gen"
-bin/tb-toplines-verify-install --root "$STAGE" \
+printf '\n# tampered\n' >> "$INSTALL_DIR/bin/tb-toplines-gen"
+bin/tb-toplines-verify-install --root "$INSTALL_DIR" \
   && cp systemd/*.service systemd/*.timer "$SYSD/" \
   || echo "install correctly refused (gate exit $?)"
 # expect: ABORT — 1 of 10 ... bin/tb-toplines-gen ; install correctly refused
-git -C "$STAGE" checkout -- bin/tb-toplines-gen   # restore from the reviewed clone
+git -C "$INSTALL_DIR" checkout -- bin/tb-toplines-gen
 
 # 3. VERIFY: the restored tree matches again.
-bin/tb-toplines-verify-install --root "$STAGE"
+bin/tb-toplines-verify-install --root "$INSTALL_DIR"
 # expect: OK — all 10 deployed artifacts match the reviewed-clean pin set
 
 # 4. ROLL BACK guard: a prior/altered build drifts from this release's pins, so
 #    the gate blocks re-activating it. (Simulates rolling an artifact back to an
 #    earlier, unreviewed version.)
-printf 'OLD unreviewed build\n' > "$STAGE/bin/tb-toplines-gen"
-bin/tb-toplines-verify-install --root "$STAGE" \
+printf 'OLD unreviewed build\n' > "$INSTALL_DIR/bin/tb-toplines-gen"
+bin/tb-toplines-verify-install --root "$INSTALL_DIR" \
   || echo "gate blocks a drifted rollback, as documented"
 # expect: ABORT — 1 of 10 ... bin/tb-toplines-gen ; gate blocks a drifted rollback
-git -C "$STAGE" checkout -- bin/tb-toplines-gen   # return to this reviewed release
-bin/tb-toplines-verify-install --root "$STAGE"    # green again
+git -C "$INSTALL_DIR" checkout -- bin/tb-toplines-gen
+bin/tb-toplines-verify-install --root "$INSTALL_DIR"    # green again
 
 # 5. CLEANUP: scratch only; the live board and ATC are untouched.
-cd ~ && rm -rf "$STAGE" "$SYSD"
+cd / && rm -rf "$SCRATCH"
 echo "walkthrough complete"
 ```
 
@@ -281,8 +447,8 @@ echo "walkthrough complete"
 | parity logs | `journalctl --user -u tb-toplines-parity -n 30 --no-pager` |
 | restart the pipeline | `systemctl --user restart tb-toplines-watch` |
 | restart the server | `systemctl --user restart tb-toplines` |
-| run the generator once by hand | `~/tb-toplines/bin/tb-toplines-gen && head -c 400 ~/tb-toplines/web/toplines.json` |
-| show today's parity attempt | `ls -l "${XDG_STATE_HOME:-$HOME/.local/state}/tb-toplines/parity-attempt-$(TZ=America/Los_Angeles date +%F)"` |
+| run the generator once by hand | `INSTALL_DIR="${TB_TOPLINES_ROOT:-$HOME/tb-toplines}"; "$INSTALL_DIR/bin/tb-toplines-gen" && head -c 400 "$INSTALL_DIR/web/toplines.json"` |
+| show today's parity attempt | `. "$HOME/.config/tb-toplines/toplines.env"; ls -l "${XDG_STATE_HOME:-$HOME/.local/state}/tb-toplines/parity-attempt-$(TZ="${TB_TOPLINES_TZ:-UTC}" date +%F)"` |
 | run parity now | `systemctl --user start tb-toplines-parity.service; journalctl --user -u tb-toplines-parity -n 30` (the atomic daily guard skips a second CLI call) |
 | sidecar status | `docker exec tb-toplines-ts tailscale status; docker exec tb-toplines-ts tailscale serve status` |
 | footprint on the page | vitals footer shows WAL bytes and pass ms; WAL over 64 MB means a long reader somewhere, find it with `fuser ~/.tightbeam/state.db` |
@@ -294,18 +460,24 @@ release that changed an artifact carries the matching pin update, so the gate
 passes; unexpected drift aborts the upgrade before anything restarts.
 
 ```sh
-cd ~/tb-toplines && git pull --ff-only
-bin/tb-toplines-verify-install --root "$PWD" \
+INSTALL_DIR="${TB_TOPLINES_ROOT:-$HOME/tb-toplines}"
+cd "$INSTALL_DIR" && git pull --ff-only
+bin/tb-toplines-verify-install --root "$INSTALL_DIR" \
   && cp systemd/* ~/.config/systemd/user/ && systemctl --user daemon-reload \
   && systemctl --user restart tb-toplines-watch tb-toplines
 ```
+
+Keep existing service `root.conf` drop-ins when `INSTALL_DIR` is non-default;
+they are unpinned install configuration and continue to select that tree.
 
 ## Roll back
 
 ```sh
 systemctl --user disable --now tb-toplines-parity.timer tb-toplines-parity.service tb-toplines-watch.service tb-toplines.service 2>/dev/null || true
 rm -f ~/.config/systemd/user/tb-toplines-parity.timer ~/.config/systemd/user/tb-toplines-parity.service ~/.config/systemd/user/tb-toplines-watch.service ~/.config/systemd/user/tb-toplines.service
-cd ~/tb-toplines
+rm -rf ~/.config/systemd/user/tb-toplines-parity.timer.d ~/.config/tb-toplines
+INSTALL_DIR="${TB_TOPLINES_ROOT:-$HOME/tb-toplines}"
+cd "$INSTALL_DIR"
 git checkout <previous-tag-or-sha>
 if test -d systemd; then
   find systemd -maxdepth 1 -type f \( -name 'tb-toplines*.service' -o -name 'tb-toplines*.timer' \) -exec cp {} ~/.config/systemd/user/ \;
@@ -334,7 +506,8 @@ Remove entirely:
 ```sh
 systemctl --user disable --now tb-toplines tb-toplines-watch tb-toplines-parity.timer
 docker rm -f tb-toplines-ts && docker volume rm tb-toplines-ts-state
-rm -rf ~/tb-toplines ~/.config/systemd/user/tb-toplines*
+INSTALL_DIR="${TB_TOPLINES_ROOT:-$HOME/tb-toplines}"
+rm -rf "$INSTALL_DIR" ~/.config/systemd/user/tb-toplines*
 ```
 
 Then remove the `toplines` node in the Tailscale admin console. ATC is
@@ -352,6 +525,10 @@ ATC's stage differs, read
 and re-port the ladder. Do not edit ATC or loosen the tolerance to hide the
 warning. An `inconclusive` result names a row that changed during the capture;
 leave it visible and let the next daily timer run perform the next comparison.
+An `ok-ledger-atc-missing` result means ledger parity held but the configured
+local ATC file could not be read. The oneshot remains successful and the page
+shows “ATC stage evidence unavailable.” Repair `TB_TOPLINES_ATC_DATA`; an ATC
+web URL does not supply stage evidence.
 
 A near-daily-run clock-gap warn is benign. When the sanctioned daily CLI parity
 run executes more than 120s before its generator pass, the uniform capture-time

@@ -132,3 +132,19 @@ never consults git, so TopLines' stage matches the deployed ATC exactly, and
 TopLines omits ATC's separate git-derived `merged` field. The abandoned commit
 `181ca45` and the Desk-layer fork checkout are not authority. See `docs/spec.md`
 Terms → Stage / Holder kind and `reference/atc-derivations.md`.
+
+## D20 · 2026-09-16 · Portable install root and canonical final acceptance
+
+The pinned user units retain `%h/tb-toplines` as the current-user default. An
+installer that selects another absolute directory writes one unpinned
+`root.conf` drop-in for each service. Each drop-in overrides
+`WorkingDirectory`, clears `ExecStart`, and sets `ExecStart` to the matching
+binary in that directory. The gate receives the same directory through
+`--root`; no TopLines binary reads `TB_TOPLINES_ROOT`, and the ten pinned
+artifacts stay identical across installs.
+
+Final fresh-install acceptance occurs only after merge. It clones or fetches
+`https://github.com/gdiab/tightbeam-toplines.git`, checks out the exact merged
+`main` commit, records `git rev-parse HEAD`, and completes setup, verification,
+and rollback from that clone. A SHA-matched local source can prove the procedure
+before merge, but that run is rehearsal and cannot satisfy final acceptance.

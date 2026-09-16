@@ -41,18 +41,20 @@ assembling several terminal responses.
    plus inline Python 3.12 shape. The generator, server and parity check use only
    the Python 3.12 standard library. The page is one static HTML file with
    inline CSS and JavaScript.
-7. **Deploy as `gd`, no root.** systemd user units, files under
-   `/home/gd/tb-toplines/`, the sidecar via `docker` (gd is in the docker
-   group). Loopback port 8898, bound to 127.0.0.1 only. No ufw change.
+7. **Deploy as the installing user, no root.** systemd user units use
+   `$HOME/tb-toplines` by default. An installer may select another absolute
+   install directory through per-service `root.conf` drop-ins without changing
+   the pinned units. The sidecar uses that user's Docker access. Loopback port
+   8898 stays bound to 127.0.0.1 only. No ufw change.
 
 ## Assumptions
 
-- The production ledger is a local SQLite database in WAL mode at
-  `/home/gd/.tightbeam/state.db`; deployment must verify that path and mode.
-- George is the sole operator and the only person granted tailnet access to the
-  TopLines hostname (D8). A second viewer invalidates the visibility model.
-- User `gd` can read the ledger, manage systemd user units, use Docker, and bind
-  loopback port 8898. Deployment must verify each capability before install.
+- The production ledger is a local SQLite database in WAL mode. It defaults to
+  `$HOME/.tightbeam/state.db`; deployment must verify the effective path and mode.
+- One configured operator is the intended viewer. A second viewer invalidates
+  the visibility model (D8).
+- The installing user can read the ledger, manage systemd user units, use Docker,
+  and bind loopback port 8898. Deployment verifies each capability before install.
 - Schema drift is expected over time. An unknown required table or column is a
   named failure that preserves the last good page data; it is never guessed.
 
@@ -108,7 +110,8 @@ ruling before implementation.
    `http://127.0.0.1:8898`. Tailnet-only. Mirrors how `tb-atc-ts` is run,
    without touching it.
 6. **Parity check** `bin/tb-toplines-parity` on a daily systemd user timer.
-   Runs `tightbeam toplines --as-user george` exactly once, then immediately
+   Runs `tightbeam toplines --as-user "$TB_TOPLINES_OPERATOR"` exactly once,
+   with no operator fallback, then immediately
    runs the generator and compares each open item's time-since-last-activity
    (`sinceProgressMs`, tolerance 120 s), open and closed card counts and attest totals against
    that generated `toplines.json`. It also compares each item's stage against
@@ -130,7 +133,11 @@ ruling before implementation.
    `TB_TOPLINES_PARITY`, and `TB_TOPLINES_ATC_DATA`. Parity also accepts
    `TB_TOPLINES_CLI_JSON`, a captured real CLI response; when set it performs
    compare-only work and must not invoke `tightbeam`. Service units set none of
-   these except the deployed output paths.
+   these except the deployed output paths. Installer configuration also supplies
+   `TB_TOPLINES_OPERATOR`, optional safe-http(s) `TB_TOPLINES_ATC_URL`,
+   `TB_BASE_DIR`, and `TB_TOPLINES_TZ`. The install directory is not a runtime
+   variable: alternate roots use systemd `root.conf` drop-ins and the gate's
+   explicit `--root` argument.
 
 ## Non-goals
 
@@ -289,14 +296,17 @@ Every line demonstrated on sirius, command and output on the card.
    `docs/design.md`, text and controls remain readable, and the table stays
    inside its horizontal scroller. OS light/dark and each explicit toggle state
    work; the toggle survives reload.
-8. Header link opens ATC at `https://atc.tailf064dc.ts.net/`.
+8. When `TB_TOPLINES_ATC_URL` is a safe `http` or `https` URL, the header link
+   opens that URL. When unset or unsafe, the link is omitted.
 9. Parity timer has run once, its result is visible on the page, and a
    deliberately corrupted stage in a copy of ATC's `data.json` makes it warn.
    Run the negative control with `TB_TOPLINES_CLI_JSON` set to the real capture
    from Acceptance 2 and `TB_TOPLINES_ATC_DATA` set to the corrupt copy; prove
    it makes no additional CLI call and does not modify ATC.
 10. `docs/runbook.md` walks a fresh shell through install, verify and roll
-    back, and the reviewer has followed it.
+    back, and the reviewer has followed it. Final acceptance clones the canonical
+    GitHub origin at the exact merged `main` commit after merge. A SHA-matched
+    local copy is pre-merge rehearsal only.
 11. Nothing under `/opt/tb-atc`, `/usr/local/bin/tb-weather-*`, or the
     `tb-atc-ts` container changed. Compare before/after recursive SHA-256
     manifests and metadata for both filesystem paths, normalized
