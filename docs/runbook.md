@@ -80,30 +80,35 @@ excluded**: it is the gate's own host file, and a gate cannot pre-verify the
 document that carries it. (The redeploy verifier counted an "eleventh" artifact;
 that was this runbook, excluded here for exactly that reason.)
 
-The pin source is the reviewed-clean deployed product on sirius, which is
-be525345's corrected redeploy materialised on disk. The provenance basis is
-PO-locked (verbatim below); `docs/runbook.md` is not gate-pinned (the gate's own
-host file) but appears in the provenance record.
+The unchanged pins retain the provenance of the reviewed product on sirius,
+which is be525345's corrected redeploy materialised on disk. The generator and
+page pins identify the 2026-09-16 running-turn correction release candidate.
+Install that candidate only after independent review clears its exact commit.
+The prior-release provenance basis is PO-locked (verbatim below);
+`docs/runbook.md` is not gate-pinned (the gate's own host file) but appears in
+the provenance record.
 
 ```
-PIN PROVENANCE (PO-locked, wi_f9a21185; present exactly + state residual):
+PRIOR-RELEASE PIN PROVENANCE (PO-locked, wi_f9a21185; state residual):
 TIER A blob-cryptographic vs 26a3641 = 4 gate-pinned artifacts: parity 09de23f1, ts cd307aed, tb-toplines-parity.service d070d2ca, tb-toplines-parity.timer bd7d6af5.
 GEN b1d4c392: authoritative reviewed sha + installed match + Acc2 functional.
 TIER B (independent reviewer-commit-anchored + installed==pin + redeploy record att_b5a53254 + functional; reviewed git-objects reaped => NOT blob-cryptographic): gen->reviewed-clean @6853091 (att_24278bde); web/index.html->reviewed-clean @36a4b4f9 (att_82cde5af); serve+watch->reviewed-clean @8d33eb23 (asg_04c93305); tb-toplines.service+tb-toplines-watch.service->reviewed-clean @8d33eb23 (asg_04c93305).
 docs/runbook.md = reviewed 26a3641 base + the R1-reviewed newly-authored install-gate delta -- provenance is reviewed-base + THIS (R1) review, NOT a 26a3641 cryptographic match.
 RESIDUAL: Tier-B installed<->reviewed-commit link is reviewer-anchored + functional, NOT blob-cryptographic. Do NOT cite att#6/att_d117b2c2 or the superseded pre-D19 page sha b39347c8.
+
+CURRENT RELEASE CANDIDATE (wi_3afff16d): generator and page carry the 2026-09-16 running-turn headline correction. Install only after independent review clears the exact candidate commit that contains these pins.
 ```
 
 Full pin values (the ten gate-verified artifacts):
 
 | Deployed artifact | sha256 |
 |---|---|
-| `bin/tb-toplines-gen` | `b1d4c392c7324ec1835d1609a10599d6051081f41c230a525a692bebdcf0ded2` |
+| `bin/tb-toplines-gen` | `a53e39869c62c47bf886f62e96560c38e82679c7e41f0d7a20eb3df28309884a` |
 | `bin/tb-toplines-parity` | `09de23f15f7d560b1450a96f70033abf5ca7d2332c74a88b20ac4455d376ff4e` |
 | `bin/tb-toplines-serve` | `81e905f676f45e2a9270292d1fdf23b09fc29fc49ac4041f959de538bcc44182` |
 | `bin/tb-toplines-watch` | `7f5497002ae3be05182d3066aea711db1766c15ccf3855af3c237f96b4cc3e81` |
 | `bin/tb-toplines-ts` | `cd307aedea5cc010075f3e4355a3c12b26237e3501a56e156784e3ccd554b506` |
-| `web/index.html` | `321b39c1a939499db4bdca8d891523764a76340b333003c04297fc69d137c159` |
+| `web/index.html` | `8aec36ce296ed1648df11ee1e991562e44703a3bc6ce3898546c7ba5705e75cc` |
 | `systemd/tb-toplines.service` | `5beb3ed03a4019327137885334aa03090bb3f1fa579547edc4018c97842da33d` |
 | `systemd/tb-toplines-watch.service` | `2f94734e69daffd84faef63cd37374add89edac18af64a20e1c76f465d00fdc7` |
 | `systemd/tb-toplines-parity.service` | `d070d2ca776972a199cd9a9ebf8e683f9b9195f72dca4a1d919e0f615229373b` |

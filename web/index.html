@@ -274,12 +274,12 @@ function renderVitals(){
   const sessions=org.sessions||{total:0,byKind:{},byHarness:{}};
   const byKind=sessions.byKind||{};
   const open=states.open||0, iceboxed=states.iceboxed||0, failed=states.failed||0, closed=states.closed||0;
-  const running=data.items.filter(item=>item.active&&item.active.runningTurn).length;
+  const running=org.runningTurns||0;
   const decisions=Array.isArray(org.decisionRequests)?org.decisionRequests.length:0;
   const wakes=Array.isArray(org.wakes)?org.wakes:[];
   const next=wakes[0];
   $('#vitals').innerHTML=`
-    <div class="vital ${running?'live':''}"><span class="lbl">Running turns</span><span class="num mono">${running}</span><span class="sub">${running?'agents mid-turn right now':'no agent is mid-turn'}</span></div>
+    <div class="vital ${running?'live':''}"><span class="lbl">Running turns</span><span class="num mono">${running}</span><span class="sub">${running===1?'turn running right now':running?'turns running right now':'no turn is running'}</span></div>
     <div class="vital"><span class="lbl">Wakes queued</span><span class="num mono">${org.wakesPending||0}</span><span class="sub">${next?`next fires <span class="mono">${esc(dueText(next.dueAt))}</span>`:'no scheduled wakes'}</span></div>
     <div class="vital ${decisions?'alert':''}"><span class="lbl">Needs your ruling</span><span class="num mono">${decisions}</span><span class="sub">${decisions?'decision requests waiting on George':'nothing waiting on George'}</span></div>
     <div class="vital"><span class="lbl">Open items</span><span class="num mono">${open}</span><span class="sub">${data.items.filter(item=>item.state==='open'&&item.sinceProgressMs<86400000).length} touched in the last day</span></div>

@@ -421,6 +421,7 @@ def read_ledger(connection: sqlite3.Connection, generated_at: int) -> dict[str, 
 
     return {
         "org": {
+            "runningTurns": sum(turn["status"] == "running" for turn in turns),
             "sessions": {
                 "total": len(active_sessions),
                 "byKind": {kind: session_kind_counts[kind] for kind in KINDS},
