@@ -83,10 +83,13 @@ ruling before implementation.
    state, pending wake, open and closed cards with outcomes, attest counts by
    kind and verdict kind, evidence stage on ATC's ladder, holders with name,
    kind, harness and model, turn count, open decision requests, fail reason.
-   Org-wide: sessions by kind and harness, item counts by state, pending
-   wakes with due time and origin, open operator decision requests, and a
-   footprint block (database bytes, WAL bytes, pass duration). Target pass
-   time under 300 ms on today's ledger (516 MB, 13k turns, 6.7k attests).
+   Org-wide: the count of all turn rows whose status is `running`, sessions by
+   kind and harness, item counts by state, pending wakes with due time and
+   origin, open operator decision requests, and a footprint block (database
+   bytes, WAL bytes, pass duration). The running-turn count includes rows with
+   no item attribution and counts multiple running rows on one item separately.
+   Target pass time under 300 ms on today's ledger (516 MB, 13k turns, 6.7k
+   attests).
 3. **Page** `web/index.html`. The reviewed mock (`mock/toplines.html`) with
    its inline snapshot replaced by a single-flight fetch of `toplines.json`
    every 2 s and a stale/error banner when `generatedAt` is older than 90 s or
@@ -188,6 +191,11 @@ disagree, the authority wins and this Term is corrected to it.
   `live` counts those started and not ended. An item with no such turns is `0`,
   a real zero. Turn counts are a display number and are not in the parity
   comparison.
+- **Org running turns.** `org.runningTurns` counts every `turns` row with
+  `status = 'running'` in the generator's ledger snapshot. It includes rows
+  with null `assignmentId` and `jobRef`, and counts each row when several
+  running turns belong to one item. It does not infer item attribution or
+  distinct agents. Queued and terminal rows do not count.
 - **Stage.** The evidence ladder is ported verbatim from the deployed
   (parity-target) ATC generator `/usr/local/bin/tb-weather-gen`, lines 282-306
   (D-b/D-c, ruled att_5ecfb687 + George dr_9daadbe0; `reference/atc-derivations.md`

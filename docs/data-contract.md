@@ -26,6 +26,7 @@ from "zero".
     "edgeBasis": "…"                    // copied VERBATIM from the CLI response's edgeBasis; the generator never synthesizes it; null until first run
   },
   "org": {
+    "runningTurns": 3,                 // all turns.status = 'running' rows in this ledger snapshot, including unattributed rows
     "sessions": {
       "total": 51,                      // sessions.state = 'active'
       // byKind is the DERIVED holder kind (see Rules -> holders[].kind), from the
