@@ -9,9 +9,11 @@ operator. It is the tabular sibling of
 draws the org as a 3D diagram, TopLines lays the same facts out as rows you can
 sort and filter.
 
-Status: **specified, not yet built.** This repo currently holds the spec, the
-architecture, the design tokens, a reviewed mock, and the brief for the Tightbeam
-product owner who will re-review and staff the work. See `docs/po-brief.md`.
+Status: **live.** Implemented, pin-gated install, and tagged as
+[v0.2.0](https://github.com/gdiab/tightbeam-toplines/releases/tag/v0.2.0)
+(running-turn headline + portable installs). Spec, architecture, design tokens,
+and the reviewed mock remain in-tree; install and operate from `docs/runbook.md`.
+Historical staffing notes: `docs/po-brief.md`.
 
 ## What it looks like
 
@@ -29,6 +31,14 @@ board's facts, and atomically rewrites `toplines.json`. A static page fetches
 that file every two seconds. Commit to screen is one to five seconds. Nothing
 in this pipeline talks to the gateway, holds a write lock, or calls the
 `tightbeam` CLI on a cadence. Full detail in `docs/architecture.md`.
+
+## Install
+
+Fresh installs and Sirius migration use the pin gate in `docs/runbook.md`.
+Nothing is staged unless every deployed artifact matches the reviewed-clean
+sha256 pins in `bin/tb-toplines-verify-install`. Current release:
+[v0.2.0](https://github.com/gdiab/tightbeam-toplines/releases/tag/v0.2.0)
+(`ef6f5ef`).
 
 ## Two rules that are not negotiable
 
@@ -50,7 +60,7 @@ in this pipeline talks to the gateway, holds a write lock, or calls the
 | `docs/decisions.md` | Decision log, dated, with the reasoning. |
 | `docs/design.md` | Tokens mirrored from ATC, typography, encodings, the toggle. |
 | `docs/data-contract.md` | The shape of `toplines.json` the generator emits and the page reads. |
-| `docs/runbook.md` | Deploy, operate, roll back on sirius. Draft until the coder finishes it. |
+| `docs/runbook.md` | Deploy, operate, roll back; pin-gated verify-install and release evidence. |
 | `docs/po-brief.md` | The handoff to the product owner, with the exact Tightbeam commands. |
 | `mock/` | The reviewed mock and the snapshot it renders. |
 | `reference/atc-derivations.md` | What to port from ATC, by file and line, and under what license. |
