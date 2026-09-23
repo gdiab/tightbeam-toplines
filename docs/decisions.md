@@ -151,12 +151,16 @@ before merge, but that run is rehearsal and cannot satisfy final acceptance.
 
 ## D21 · 2026-09-23 · Row hover is a bounded glance
 
-Ruled by George for work item `wi_960ee64a-8e8e-47ea-aff7-d1ae32b309ed`.
-Short popups keep their existing content and presentation. A distribution with
-more than five verdict kinds shows the five greatest counts with a deterministic
-name tie-break, followed by an explicit count of omitted kinds. The page derives
-that summary from existing snapshot data; the ledger, generator and JSON contract
-do not change.
+George authorized the outcome and delegated its design for work item
+`wi_960ee64a-8e8e-47ea-aff7-d1ae32b309ed`. The product owner ruled the specific
+mechanics recorded in
+`/home/gd/.tightbeam/work/d5bf83dbecf9/hover-popup-spirit-20260923.md`: short
+popups keep their existing content and presentation; a distribution with more
+than five verdict kinds shows the five greatest counts with a deterministic name
+tie-break followed by an explicit omitted-kind count; the popup uses an 8 CSS px
+viewport inset and a reachable internal-overflow fallback. The page derives the
+summary from existing snapshot data; the ledger, generator and JSON contract do
+not change.
 
 The popup uses its rendered dimensions to stay inside an 8 CSS px viewport
 inset. It wraps long tokens and uses reachable internal overflow only when the
@@ -165,9 +169,9 @@ the operator enters or scrolls an internally overflowing popup. A short popup
 keeps its existing pointer-follow and dismissal behavior. A persistent details
 panel and new controls stay outside this correction.
 
-Subtraction ruling: remove the exhaustive long verdict-kind tail from the
-glance. Deleting the popup loses the row-level glance, while accepting clipping
-hides its first or last facts. A bounded summary plus a last-resort overflow
-surface is therefore the smallest mechanism that preserves the Goal. The active
-contract and browser evidence are in `docs/design.md` **Row hover popup** and
-`docs/spec.md` Acceptance 12.
+The product owner's subtraction ruling removes the exhaustive long verdict-kind
+tail from the glance. Deleting the popup loses the row-level glance, while
+accepting clipping hides its first or last facts. A bounded summary plus a
+last-resort overflow surface is therefore the smallest mechanism that preserves
+the Goal. The active contract and browser evidence are in `docs/design.md`
+**Row hover popup** and `docs/spec.md` Acceptance 12.
