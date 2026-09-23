@@ -116,7 +116,7 @@ Full pin values (the ten gate-verified artifacts):
 | `bin/tb-toplines-serve` | `81e905f676f45e2a9270292d1fdf23b09fc29fc49ac4041f959de538bcc44182` |
 | `bin/tb-toplines-watch` | `34a4ea6f193bb987275bd02214caf1e132ab4b992b55f097c7f82b75675b26e0` |
 | `bin/tb-toplines-ts` | `cd307aedea5cc010075f3e4355a3c12b26237e3501a56e156784e3ccd554b506` |
-| `web/index.html` | `41e39191a971950b1e6832de1c5a019d42ac841d23cf91879bd721d8466282aa` |
+| `web/index.html` | `0ecbb12b43a91f04911288f65c117db201bc91d5f78ded99fe927710472a0579` |
 | `systemd/tb-toplines.service` | `7a8e4a03d6851fb71d9432839662060860088f5a5384575e66cd9831335c5abe` |
 | `systemd/tb-toplines-watch.service` | `e909efac9770a0276d82552499389fa98415167a1164a84c82ad747d17dd329a` |
 | `systemd/tb-toplines-parity.service` | `82fd7d165dc4f1314cbe9c8958ed860cb3f49e26b96f1ded1f0e13f566a86ad8` |

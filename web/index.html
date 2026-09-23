@@ -150,8 +150,9 @@ td.quiet{width:150px}
 .foot[data-parity="inconclusive"]{color:var(--wait)}
 
 /* tooltip */
-.tip{position:fixed;z-index:10;pointer-events:none;background:var(--surface);color:var(--ink);border:1px solid var(--rule);padding:8px 10px;font-size:12px;line-height:1.4;max-width:320px;opacity:0;transition:opacity .08s}
+.tip{position:fixed;z-index:10;box-sizing:border-box;pointer-events:none;background:var(--surface);color:var(--ink);border:1px solid var(--rule);padding:8px 10px;font-size:12px;line-height:1.4;max-width:min(342px,calc(100vw - 16px));max-height:calc(100vh - 16px);overflow-wrap:anywhere;overflow-y:hidden;opacity:0;transition:opacity .08s}
 .tip[data-on="1"]{opacity:1}
+.tip[data-scroll="1"]{pointer-events:auto;overflow-y:auto}
 .tip b{font-weight:600}
 @media (prefers-reduced-motion:reduce){.tip{transition:none}}
 </style>
@@ -459,22 +460,51 @@ function render(next){
 }
 
 const tip=$('#tip');
+const TIP_INSET=8;
+
+function compareCodePoints(left,right){
+  const a=Array.from(left,value=>value.codePointAt(0)),b=Array.from(right,value=>value.codePointAt(0));
+  for(let index=0;index<Math.min(a.length,b.length);index++) if(a[index]!==b[index]) return a[index]-b[index];
+  return a.length-b.length;
+}
+function verdictSummary(item){
+  const entries=Object.entries(item.attests.byVerdictKind||{});
+  if(entries.length<=5) return {entries,omitted:0};
+  return {entries:entries.sort((a,b)=>b[1]-a[1]||compareCodePoints(a[0],b[0])).slice(0,5),omitted:entries.length-5};
+}
 function tooltip(item){
   const outcomes=item.cards.byOutcome||{};
-  const verdicts=Object.entries(item.attests.byVerdictKind||{}).map(([value,count])=>`${value} ${count}`).join(', ');
+  const summary=verdictSummary(item);
+  const verdicts=summary.entries.map(([value,count])=>`${value} ${count}`).join(', ');
+  const omitted=summary.omitted?` · +${summary.omitted} more kind${summary.omitted===1?'':'s'}`:'';
   const age=(data.generatedAt-item.createdAt)/3600000;
-  return `<b>${esc(item.id)}</b> · ${esc(item.state)} · started ${age<48?Math.round(age)+' h':Math.round(age/24)+' d'} ago<br>cards: ${outcomes.completed||0} completed · ${outcomes.surrendered||0} surrendered · ${outcomes.revoked||0} revoked<br>attests: ${KINDS.filter(value=>item.attests.byKind[value]).map(value=>`${value} ${item.attests.byKind[value]}`).join(' · ')||'none'}<br>${verdicts?`verdicts: ${esc(verdicts)}<br>`:''}quiet ${formatDuration(item.sinceProgressMs/60000)} · ${item.turns.total} turns${item.turns.live?` · ${item.turns.live} live`:''}`;
+  return `<b>${esc(item.id)}</b> · ${esc(item.state)} · started ${age<48?Math.round(age)+' h':Math.round(age/24)+' d'} ago<br>cards: ${outcomes.completed||0} completed · ${outcomes.surrendered||0} surrendered · ${outcomes.revoked||0} revoked<br>attests: ${KINDS.filter(value=>item.attests.byKind[value]).map(value=>`${value} ${item.attests.byKind[value]}`).join(' · ')||'none'}<br>${verdicts?`verdicts: ${esc(verdicts)}${omitted}<br>`:''}quiet ${formatDuration(item.sinceProgressMs/60000)} · ${item.turns.total} turns${item.turns.live?` · ${item.turns.live} live`:''}`;
+}
+function hideTip(){
+  tip.dataset.on='0';
+  tip.dataset.scroll='0';
+}
+function showTip(item,event){
+  tip.innerHTML=tooltip(item);
+  tip.dataset.scroll='0';
+  tip.dataset.on='1';
+  tip.style.left=TIP_INSET+'px';
+  tip.style.top=TIP_INSET+'px';
+  tip.dataset.scroll=tip.scrollHeight>tip.clientHeight?'1':'0';
+  const rect=tip.getBoundingClientRect(),width=rect.width,height=rect.height;
+  const offset=tip.dataset.scroll==='1'?-1:14;
+  const x=Math.max(TIP_INSET,Math.min(event.clientX+offset,innerWidth-width-TIP_INSET));
+  const y=Math.max(TIP_INSET,Math.min(event.clientY+offset,innerHeight-height-TIP_INSET));
+  tip.style.left=x+'px';tip.style.top=y+'px';
 }
 document.addEventListener('mousemove',event=>{
   const row=event.target.closest&&event.target.closest('tr.row');
   const item=row&&itemsById.get(row.dataset.id);
-  if(!item){tip.dataset.on='0';return;}
-  tip.innerHTML=tooltip(item);
-  tip.dataset.on='1';
-  const x=Math.min(event.clientX+14,innerWidth-340),y=Math.min(event.clientY+14,innerHeight-tip.offsetHeight-8);
-  tip.style.left=x+'px';tip.style.top=y+'px';
+  if(item){showTip(item,event);return;}
+  if(tip.dataset.scroll==='1'&&tip.contains(event.target)) return;
+  hideTip();
 });
-document.addEventListener('scroll',()=>tip.dataset.on='0',{passive:true});
+document.addEventListener('scroll',event=>{if(event.target!==tip) hideTip();},{passive:true,capture:true});
 
 async function poll(){
   try{
