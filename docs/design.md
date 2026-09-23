@@ -82,6 +82,43 @@ Stage ramp, ATC's seven stops, index 0 to 6:
 - **Quiet-band dividers** in the open list: within the hour, within the day,
   more than a day, more than a week.
 
+## Row hover popup
+
+The popup is a bounded glance over the existing item snapshot. Its first line
+shows item identity, state and age. Cards and attest counts follow. The final
+line shows quiet time and turn facts. The page keeps those facts readable and
+does not mutate or replace their source data.
+
+For zero through five distinct verdict kinds, the popup shows each kind in the
+existing source order and keeps the current inline presentation. For more than
+five distinct kinds, it shows the five greatest counts in descending order.
+Equal counts use the exact verdict-kind string in ascending Unicode code-point
+order. An adjacent `+N more kinds` summary gives the number of omitted distinct
+kinds: `N = distinct verdict kinds - 5`. It does not sum the omitted attest
+events or describe the five shown kinds as the complete distribution. The
+separate attest totals remain unchanged.
+
+The page renders the hovered item's content before it measures and positions
+the popup. The resulting popup bounding rectangle has an 8 CSS px inset from
+each viewport edge: `left >= 8`, `top >= 8`, `right <= viewport width - 8`, and
+`bottom <= viewport height - 8`. The popup keeps its current 320 CSS px maximum
+content width when that width fits and contracts on narrower viewports. Long
+tokens wrap within the frame without horizontal overflow.
+
+The popup height cannot exceed the viewport height minus 16 CSS px. It gains
+internal vertical scrolling only when its rendered content cannot fit within
+that height. A popup without internal overflow keeps its existing pointer-follow
+and dismissal behavior. When internal overflow is active, the popup accepts
+pointer input and remains open while the pointer is over the source row or the
+popup, including while the operator scrolls the popup. It closes after the
+pointer leaves both. This reachable overflow is the fallback for an unusually
+small viewport or long label; the summarized normal cases do not force scrolling.
+
+This correction removes the exhaustive long verdict-kind tail from the glance.
+Deleting the popup would remove the row-level glance, and accepting viewport
+clipping would hide the beginning or end. Those alternatives do not meet the
+Goal, so the bounded summary and reachable overflow fallback remain.
+
 ## Typography
 
 System stacks only, as ATC: `ui-sans-serif, -apple-system, "Helvetica Neue",
@@ -108,4 +145,5 @@ in `--ink-2`, no icon. Same treatment as the command echo beside the title.
 
 `mock/toplines.html` is the reviewed reference. When the page and the mock
 disagree, the mock wins on appearance and this document wins on tokens and
-encodings; raise the disagreement on the card.
+encodings, except that **Row hover popup** supersedes the mock's exhaustive,
+unbounded tooltip. Raise any other disagreement on the card.
