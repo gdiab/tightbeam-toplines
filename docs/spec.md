@@ -100,7 +100,8 @@ ruling before implementation.
    dividers for open items only (iceboxed items are a flat list),
    the right rail (needs your ruling, scheduled wakes, sessions by kind), the
    appearance toggle (system, light, dark, remembered per browser), and a
-   link to ATC in the header. Visual system per `docs/design.md`.
+   link to ATC in the header. Visual system and the viewport-safe row-hover
+   presentation per `docs/design.md`.
 4. **Server** `bin/tb-toplines-serve`. Static file server on 127.0.0.1:8898
    serving `web/`, `Cache-Control: no-store` on `toplines.json`. Stdlib
    `http.server` is acceptable; single process.
@@ -145,6 +146,11 @@ ruling before implementation.
 - Per-user visibility scoping. The board reads with operator visibility. The
   org has one operator; if that changes, this is reopened (D8).
 - History, sparklines, per-agent pages, notifications, sound.
+- A new JSON field, ledger query, or backend aggregation for row-hover
+  presentation. The page derives the bounded verdict-kind summary from the
+  existing `attests.byVerdictKind` object and preserves the source object.
+- A persistent work-item details panel or new details controls. A concrete
+  browser constraint requires a new PO ruling before either enters scope.
 - A link from ATC back to TopLines. Desired, but it is a change to ATC and
   goes to `clickety-clacks/tightbeam-atc` as an issue or PR, outside this
   work.
@@ -311,6 +317,29 @@ Every line demonstrated on sirius, command and output on the card.
     `tb-atc-ts` container changed. Compare before/after recursive SHA-256
     manifests and metadata for both filesystem paths, normalized
     `docker inspect` output, and `tailscale serve status` from `tb-atc-ts`.
+12. Before deployment approval is requested, capture a real served snapshot
+    and a real-browser screenshot of the existing overflow defect. Test the
+    fix from a separate candidate preview; do not edit `/home/gd/tb-toplines`
+    for the preview. The screenshot set includes `wi_c074a855` plus the union
+    of the current top three items by turn count and the current top three by
+    distinct verdict-kind count, with duplicate item ids removed. Identify
+    both counts for each selected item. At a viewport width of at least 1000
+    CSS px, capture each selected item at height 800 px and at one height from
+    1000 through 1080 px. Exercise pointer positions near the top and bottom
+    edges across that set. Include one popup with at most five verdict kinds
+    and one narrow-window case containing
+    a token longer than the popup's normal line width. For each capture, record
+    the exact viewport, item id, snapshot timestamp and SHA-256, candidate
+    commit, and popup bounding rectangle. The entire popup frame stays at least
+    8 CSS px inside the viewport. The first identity/state facts and final
+    quiet/turn facts are visible without internal scrolling for the 800 px and
+    1000–1080 px cases. If the narrow-window case needs internal scrolling,
+    demonstrate that the last fact is reachable and that the popup remains
+    open while the pointer enters and scrolls it. The short popup retains its
+    prior content order and visual treatment apart from the boundary correction.
+    Store the screenshots as work-item artifacts and return an index that maps
+    each screenshot to these recorded facts. DOM-only simulation and a result
+    with no screenshots do not satisfy this criterion.
 
 ## Fixtures
 
@@ -358,6 +387,15 @@ The original three questions are resolved and homed as dated rulings in
 timestamped daily parity response (the generator never synthesizes it); **D16**
 iceboxed items are a flat list (no quiet-band dividers); **D17** wake prompts
 keep the first 140 Unicode code points in v1.
+
+George authorized the row-hover outcome on 2026-09-23 and delegated its design.
+The product owner ruled the five-most-frequent verdict-kind summary with an
+explicit omitted-kind count, a small viewport inset, and the reachable
+internal-overflow fallback in
+`/home/gd/.tightbeam/work/d5bf83dbecf9/hover-popup-spirit-20260923.md`. The
+delegated design fixes that inset at 8 CSS px. The resolution is homed as
+`docs/decisions.md` D21 and specified in `docs/design.md` under **Row hover
+popup**. It introduces no open question.
 
 Integration note (`dr_b1b03664`): no session on sirius currently holds GitHub
 write (gh unauthenticated, https origin). The final merge and push of this
