@@ -157,10 +157,10 @@ mechanics recorded in
 `/home/gd/.tightbeam/work/d5bf83dbecf9/hover-popup-spirit-20260923.md`: short
 popups keep their existing content and presentation; a distribution with more
 than five verdict kinds shows the five greatest counts with a deterministic name
-tie-break followed by an explicit omitted-kind count; the popup uses an 8 CSS px
-viewport inset and a reachable internal-overflow fallback. The page derives the
-summary from existing snapshot data; the ledger, generator and JSON contract do
-not change.
+tie-break followed by an explicit omitted-kind count; the popup uses a small
+viewport inset and a reachable internal-overflow fallback. The delegated design
+fixes that small inset at 8 CSS px. The page derives the summary from existing
+snapshot data; the ledger, generator and JSON contract do not change.
 
 The popup uses its rendered dimensions to stay inside an 8 CSS px viewport
 inset. It wraps long tokens and uses reachable internal overflow only when the

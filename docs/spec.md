@@ -390,11 +390,12 @@ keep the first 140 Unicode code points in v1.
 
 George authorized the row-hover outcome on 2026-09-23 and delegated its design.
 The product owner ruled the five-most-frequent verdict-kind summary with an
-explicit omitted-kind count, the 8 CSS px viewport inset, and the reachable
+explicit omitted-kind count, a small viewport inset, and the reachable
 internal-overflow fallback in
 `/home/gd/.tightbeam/work/d5bf83dbecf9/hover-popup-spirit-20260923.md`. The
-resolution is homed as `docs/decisions.md` D21 and specified in
-`docs/design.md` under **Row hover popup**. It introduces no open question.
+delegated design fixes that inset at 8 CSS px. The resolution is homed as
+`docs/decisions.md` D21 and specified in `docs/design.md` under **Row hover
+popup**. It introduces no open question.
 
 Integration note (`dr_b1b03664`): no session on sirius currently holds GitHub
 write (gh unauthenticated, https origin). The final merge and push of this

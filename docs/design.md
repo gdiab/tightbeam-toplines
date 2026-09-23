@@ -93,10 +93,11 @@ For zero through five distinct verdict kinds, the popup shows each kind in the
 existing source order and keeps the current inline presentation. For more than
 five distinct kinds, it shows the five greatest counts in descending order.
 Equal counts use the exact verdict-kind string in ascending Unicode code-point
-order. An adjacent `+N more kinds` summary gives the number of omitted distinct
-kinds: `N = distinct verdict kinds - 5`. It does not sum the omitted attest
-events or describe the five shown kinds as the complete distribution. The
-separate attest totals remain unchanged.
+order. An adjacent summary gives the number of omitted distinct kinds:
+`N = distinct verdict kinds - 5`. It reads `+1 more kind` when `N = 1` and
+`+N more kinds` when `N > 1`. It does not sum the omitted attest events or
+describe the five shown kinds as the complete distribution. The separate attest
+totals remain unchanged.
 
 The page renders the hovered item's content before it measures and positions
 the popup. The resulting popup bounding rectangle has an 8 CSS px inset from
