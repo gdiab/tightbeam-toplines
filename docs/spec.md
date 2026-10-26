@@ -372,6 +372,9 @@ Every line demonstrated on sirius, command and output on the card.
     block appears only in the confirmed list, a lookalike `agent:...operator...`
     principal does not, and a matching release fact removes it without creating
     any live obligation. Markup-like historical reason text renders inertly.
+    Opening a historical source remains open across timer ticks and one snapshot
+    refresh when its source id is unchanged; closing it remains closed. A
+    different replacement source never inherits the prior source's expansion.
 14. A captured real 0.1.9 `execution-map` response drives compare-only parity
     with the existing ID, quiet (±120 s), open/closed assignment, attest-total,
     and ATC-stage comparisons unchanged. Normal success advances latest attempt

@@ -166,6 +166,12 @@ obligation, and is not exhaustive. Total, shown, omitted, and the cap rule are
 visible. This surface has no personal-action badge, urgency color, or write
 control.
 
+An opened historical source remains open across the one-second timer render and
+across snapshot refresh when the refreshed item has the same `source`. Closing
+the native disclosure removes that remembered state on the next render. The
+state is bounded to sources in the current snapshot, so a replaced or removed
+source cannot transfer expansion to a different record or reopen later.
+
 ## Parity status
 
 The footer separates the newest attempt from the last successful check. Failed

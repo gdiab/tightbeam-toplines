@@ -274,6 +274,7 @@ let state='open';
 let kind='all';
 let qband='all';
 const rowNodes=new Map();
+const openRecordedSources=new Set();
 
 function showBanner(){
   const banner=$('#banner');
@@ -433,12 +434,20 @@ function renderRail(){
   const actions=Array.isArray(org.blockedOnYou)?org.blockedOnYou:[];
   const recorded=Array.isArray(org.recordedBlockers)?org.recordedBlockers:[];
   const coverage=org.recordedBlockersCoverage||{total:recorded.length,shown:recorded.length,omitted:0,selection:'selection unavailable'};
+  document.querySelectorAll('#recorded-blockers details[data-source]').forEach(details=>{
+    if(details.open) openRecordedSources.add(details.dataset.source);
+    else openRecordedSources.delete(details.dataset.source);
+  });
+  const currentRecordedSources=new Set(recorded.map(blocker=>String(blocker.source)));
+  for(const source of openRecordedSources){
+    if(!currentRecordedSources.has(source)) openRecordedSources.delete(source);
+  }
   $('#blockedcount').textContent=`${org.blockedOnYouCount||0} confirmed`;
   $('#blocked-empty').innerHTML=actions.length
     ?'<span>Confirmed from standing, operator-resolved ledger records.</span>'
     :'<span><b>no confirmed actions</b><br>TopLines can confirm an operator action only from a standing operator-resolved block; none is present in this snapshot.</span>';
   $('#blocked-actions').innerHTML=actions.map(action=>`<li><span class="action">${esc(action.action)}</span><span>${esc(action.project||action.workItemId)}</span><span class="meta">unblocks ${esc(action.unblocks||'not recorded')} · owner ${esc(action.owner||'unknown')} · source ${esc(action.source)} · as of ${esc(formatTime(action.evidenceAt))}</span></li>`).join('');
-  $('#recorded-blockers').innerHTML=recorded.map(blocker=>`<li><details><summary>${esc(blocker.summary)}</summary>${blocker.detail?`<div>${esc(blocker.detail)}</div>`:''}</details><span class="meta">current status unknown · ${esc(blocker.project||blocker.workItemId)} · owner ${esc(blocker.owner||'unknown')} · source ${esc(blocker.source)} · as of ${esc(formatTime(blocker.sourceAt))}</span></li>`).join('')||'<li><span class="meta">No qualifying historical blockers in this snapshot.</span></li>';
+  $('#recorded-blockers').innerHTML=recorded.map(blocker=>`<li><details data-source="${esc(blocker.source)}"${openRecordedSources.has(String(blocker.source))?' open':''}><summary>${esc(blocker.summary)}</summary>${blocker.detail?`<div>${esc(blocker.detail)}</div>`:''}</details><span class="meta">current status unknown · ${esc(blocker.project||blocker.workItemId)} · owner ${esc(blocker.owner||'unknown')} · source ${esc(blocker.source)} · as of ${esc(formatTime(blocker.sourceAt))}</span></li>`).join('')||'<li><span class="meta">No qualifying historical blockers in this snapshot.</span></li>';
   $('#recorded-coverage').textContent=`shown ${coverage.shown} of ${coverage.total}; omitted ${coverage.omitted} · ${coverage.selection}`;
   $('#wakecount').textContent=`${org.wakesPending||0} pending`;
   $('#wakes').innerHTML=wakes.map(wake=>`<li><span class="due mono ${wake.dueAt-Date.now()<7200000?'soon':''}">${esc(dueText(wake.dueAt))}</span><span class="who">${esc(wake.origin.replace(/^agent:/,''))}</span><span class="what">${esc(wake.prompt)}</span></li>`).join('');
