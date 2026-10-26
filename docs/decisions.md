@@ -175,3 +175,21 @@ accepting clipping hides its first or last facts. A bounded summary plus a
 last-resort overflow surface is therefore the smallest mechanism that preserves
 the Goal. The active contract and browser evidence are in `docs/design.md`
 **Row hover popup** and `docs/spec.md` Acceptance 12.
+
+## D22 · 2026-10-25 · Blocked on you is structured and read-only
+
+Blocked on you is a read-only human-action category disjoint from operator
+decision requests. Confirmed entries come only from existing explicit,
+structured, standing operator-resolved blocks with an unmet release condition
+and a record-supported action. Other settled recorded blockers are shown only
+as a secondary historical, current-status-unknown disclosure outside the count.
+They carry no personal-action framing and may include agent or infrastructure
+issues. This implements A-Q1 (`att_bf1d67aa` / `art_5d3607ea`) and the breadth
+ruling `att_7446f859` without reopening approvals or inferring obligations from
+prose.
+
+## D23 · 2026-10-25 · Use execution-map and expose parity attempts
+
+Parity input moves to `execution-map` for 0.1.9; the existing comparison set is
+retained unchanged; latest attempt/failure/overdue recorded separately from last
+success; 36 h overdue threshold.

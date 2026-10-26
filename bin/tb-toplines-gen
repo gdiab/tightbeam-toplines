@@ -207,7 +207,17 @@ def rows_by_key(
     return grouped
 
 
-def read_ledger(connection: sqlite3.Connection, generated_at: int) -> dict[str, Any]:
+def compact_source_text(value: str, limit: int = 140) -> tuple[str, str | None]:
+    """Return compact and expandable forms without interpreting source prose."""
+    normalized = " ".join(value.split())
+    if len(normalized) <= limit:
+        return normalized, None
+    return normalized[: limit - 1].rstrip() + "…", value
+
+
+def read_ledger(
+    connection: sqlite3.Connection, generated_at: int, operator: str | None
+) -> dict[str, Any]:
     work_items = connection.execute(
         """SELECT id, title, state, failReason, createdAt
            FROM work_items ORDER BY createdAt, id"""
@@ -242,6 +252,16 @@ def read_ledger(connection: sqlite3.Connection, generated_at: int) -> dict[str, 
            WHERE kind='operator' AND status='open'
            ORDER BY raisedAt, id"""
     ).fetchall()
+    cannot_proceed = connection.execute(
+        """SELECT id, assignmentId, attestId, reason, releaseFactKind,
+                  releaseFactScope, releaseFactPrincipalRef, state, createdAt,
+                  settledAt, settlementFactId
+           FROM assignment_cannot_proceed
+           ORDER BY createdAt DESC, id DESC"""
+    ).fetchall()
+    condition_facts = connection.execute(
+        "SELECT kind, scope FROM condition_facts"
+    ).fetchall()
     causal_cutoff = connection.execute(
         "SELECT at FROM causal_events_epoch WHERE id=0"
     ).fetchone()[0]
@@ -271,6 +291,92 @@ def read_ledger(connection: sqlite3.Connection, generated_at: int) -> dict[str, 
     session_by_key = {row["sessionKey"]: row for row in sessions}
     pending_prompt_sessions = {row["sessionKey"] for row in wakes}
     dispositions_by_item = rows_by_key(dispositions, "jobRef")
+    release_facts = {(row["kind"], row["scope"]) for row in condition_facts}
+
+    def current_owner(work_item_id: str) -> str | None:
+        owners: list[str] = []
+        for assignment in member_assignments.get(work_item_id, ()):
+            if assignment["state"] != "open":
+                continue
+            session = session_by_key.get(assignment["holderKey"])
+            owner = (
+                session["displayName"]
+                if session is not None and session["displayName"]
+                else assignment["holderKey"]
+            )
+            if owner not in owners:
+                owners.append(owner)
+        return ", ".join(owners) if owners else None
+
+    blocked_on_you: list[dict[str, Any]] = []
+    expected_principal = f"user:{operator}" if operator else None
+    for block in cannot_proceed:
+        work_item_id = resolved.get(block["assignmentId"])
+        work_item = item_by_id.get(work_item_id)
+        release = (block["releaseFactKind"], block["releaseFactScope"])
+        reason = block["reason"]
+        if not (
+            expected_principal
+            and block["state"] == "open"
+            and block["releaseFactPrincipalRef"] == expected_principal
+            and work_item is not None
+            and work_item["state"] == "open"
+            and all(release)
+            and block["settlementFactId"] is None
+            and release not in release_facts
+            and isinstance(reason, str)
+            and reason.strip()
+        ):
+            continue
+        blocked_on_you.append(
+            {
+                "action": reason,
+                "workItemId": work_item_id,
+                "project": work_item["title"],
+                "owner": current_owner(work_item_id),
+                "unblocks": work_item["title"],
+                "source": block["id"] or block["attestId"],
+                "evidenceAt": block["createdAt"],
+                "resolved": False,
+            }
+        )
+
+    recorded_candidates: list[dict[str, Any]] = []
+    seen_recorded_items: set[str] = set()
+    for block in cannot_proceed:
+        work_item_id = resolved.get(block["assignmentId"])
+        work_item = item_by_id.get(work_item_id)
+        if not (
+            block["state"] == "settled"
+            and work_item is not None
+            and work_item["state"] == "open"
+            and work_item_id not in seen_recorded_items
+        ):
+            continue
+        # Older blocks are superseded even when the newest block is resolved.
+        seen_recorded_items.add(work_item_id)
+        release = (block["releaseFactKind"], block["releaseFactScope"])
+        if block["settlementFactId"] is not None or (
+            all(release) and release in release_facts
+        ):
+            continue
+        reason = block["reason"] or "No source detail recorded"
+        summary, detail = compact_source_text(reason)
+        recorded_candidates.append(
+            {
+                "project": work_item["title"],
+                "workItemId": work_item_id,
+                "summary": summary,
+                "detail": detail,
+                "source": block["id"] or block["attestId"],
+                "sourceAt": block["createdAt"],
+                "owner": current_owner(work_item_id),
+                "status": "unknown",
+            }
+        )
+
+    recorded_total = len(recorded_candidates)
+    recorded_blockers = recorded_candidates[:20]
 
     decision_count_by_item: Counter[str] = Counter()
     for decision in decisions:
@@ -452,6 +558,18 @@ def read_ledger(connection: sqlite3.Connection, generated_at: int) -> dict[str, 
             },
             "items": {state: item_state_counts[state] for state in ITEM_STATES},
             "decisionRequests": org_decisions,
+            "blockedOnYou": blocked_on_you,
+            "blockedOnYouCount": len(blocked_on_you),
+            "recordedBlockers": recorded_blockers,
+            "recordedBlockersCoverage": {
+                "total": recorded_total,
+                "shown": len(recorded_blockers),
+                "omitted": recorded_total - len(recorded_blockers),
+                "selection": (
+                    "latest per work item, most-recent first, cap 20; "
+                    "not an exhaustive human-dependency inventory"
+                ),
+            },
             "wakes": org_wakes,
             "wakesPending": len(wakes),
         },
@@ -459,12 +577,34 @@ def read_ledger(connection: sqlite3.Connection, generated_at: int) -> dict[str, 
     }
 
 
-def load_parity(path: Path) -> Any:
+def load_parity(path: Path, generated_at: int) -> Any:
     try:
         with path.open("r", encoding="utf-8") as handle:
-            return json.load(handle)
+            parity = json.load(handle)
     except FileNotFoundError:
         return None
+    if not isinstance(parity, dict):
+        return parity
+    # Roll forward the deployed pre-attempt-history shape without rewriting it.
+    # Its completed ok result is still truthful historical success evidence.
+    if parity.get("lastAttemptAt") is None and isinstance(parity.get("ranAt"), int):
+        parity["lastAttemptAt"] = parity["ranAt"]
+        parity["lastAttemptOutcome"] = parity.get("outcome")
+        parity["failureReason"] = None
+    if (
+        parity.get("lastSuccessAt") is None
+        and parity.get("outcome") in {"ok", "ok-ledger-atc-missing"}
+        and isinstance(parity.get("ranAt"), int)
+    ):
+        parity["lastSuccessAt"] = parity["ranAt"]
+        parity["lastSuccessOutcome"] = parity["outcome"]
+    last_success_at = parity.get("lastSuccessAt")
+    parity["overdue"] = (
+        None
+        if last_success_at is None
+        else generated_at - last_success_at > 36 * 60 * 60 * 1_000
+    )
+    return parity
 
 
 def atomic_write(path: Path, value: dict[str, Any]) -> None:
@@ -494,7 +634,8 @@ def generate() -> dict[str, Any]:
     connection.row_factory = sqlite3.Row
     try:
         connection.execute("BEGIN")
-        projection = read_ledger(connection, generated_at)
+        operator = os.environ.get("TB_TOPLINES_OPERATOR", "").strip() or None
+        projection = read_ledger(connection, generated_at, operator)
         connection.commit()
     except BaseException:
         connection.rollback()
@@ -516,9 +657,9 @@ def generate() -> dict[str, Any]:
             "dbBytes": database_path.stat().st_size,
             "walBytes": wal_bytes,
         },
-        "parity": load_parity(PARITY_PATH),
+        "parity": load_parity(PARITY_PATH, generated_at),
         "config": {
-            "operator": os.environ.get("TB_TOPLINES_OPERATOR", "").strip() or None,
+            "operator": operator,
             "atcUrl": configured_atc_url(),
             "tz": os.environ.get("TB_TOPLINES_TZ", "").strip() or "UTC",
         },

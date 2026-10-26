@@ -139,6 +139,17 @@ td.quiet{width:150px}
 .wakes .what,.requests .what{grid-column:2;font-size:11.5px;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .needs{padding:12px;display:flex;gap:12px;align-items:center;color:var(--ink-2);font-size:12.5px}
 .needs .big{font-size:26px;font-weight:500;color:var(--ink)}
+.blocked-primary{padding:12px;border-bottom:1px solid var(--rule);font-size:12px;color:var(--ink-2)}
+.blocked-primary .big{font-size:26px;font-weight:500;color:var(--ink);margin-right:9px}
+.actions,.recorded{list-style:none;margin:0;padding:0}
+.actions li,.recorded li{padding:9px 12px;border-bottom:1px solid var(--rule-2)}
+.actions .action{display:block;color:var(--ink);font-weight:600}
+.actions .meta,.recorded .meta,.recorded-note,.coverage{display:block;color:var(--muted);font-size:11px;margin-top:3px}
+.recorded-wrap{background:var(--surface-2);border-top:1px solid var(--rule)}
+.recorded-wrap h3{margin:0;padding:9px 12px 0;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2)}
+.recorded-note,.coverage{padding:0 12px 8px}
+.recorded details summary{cursor:pointer;color:var(--ink-2);overflow-wrap:anywhere}
+.recorded details div{margin-top:5px;color:var(--ink-2);white-space:pre-wrap;overflow-wrap:anywhere}
 .mix{padding:10px 12px;display:flex;flex-direction:column;gap:8px}
 .mixrow{display:grid;grid-template-columns:78px 1fr 26px;gap:10px;align-items:center;font-size:12px;color:var(--ink-2)}
 .mixrow .bar{height:7px;background:var(--rule-2)}
@@ -148,6 +159,7 @@ td.quiet{width:150px}
 .foot{margin-top:22px;padding-top:8px;border-top:1px solid var(--rule);font-size:11px;color:var(--ink-2);display:flex;flex-wrap:wrap;gap:4px 18px}
 .foot[data-parity="mismatch"]{color:var(--alert);font-weight:600}
 .foot[data-parity="inconclusive"]{color:var(--wait)}
+.foot[data-parity="failed"],.foot[data-parity="overdue"]{color:var(--alert);font-weight:600}
 
 /* tooltip */
 .tip{position:fixed;z-index:10;box-sizing:border-box;pointer-events:none;background:var(--surface);color:var(--ink);border:1px solid var(--rule);padding:8px 10px;font-size:12px;line-height:1.4;max-width:min(342px,calc(100vw - 16px));max-height:calc(100vh - 16px);overflow-wrap:anywhere;overflow-y:hidden;opacity:0;transition:opacity .08s}
@@ -196,6 +208,17 @@ td.quiet{width:150px}
         <h2>Needs your ruling</h2>
         <div class="needs"><span class="big mono" id="dr">—</span><span>open decision requests. Anything here blocks an agent until you answer.</span></div>
         <ul class="requests" id="requests"></ul>
+      </section>
+      <section class="panel" id="blocked-panel">
+        <h2>Blocked on you <span class="count" id="blockedcount"></span></h2>
+        <div class="blocked-primary" id="blocked-empty"></div>
+        <ul class="actions" id="blocked-actions"></ul>
+        <div class="recorded-wrap">
+          <h3>Recorded blockers — action ownership unconfirmed</h3>
+          <p class="recorded-note">Historical source records may include agent or infrastructure issues. They assert no operator obligation and are not an exhaustive human-dependency inventory.</p>
+          <ul class="recorded" id="recorded-blockers"></ul>
+          <div class="coverage mono" id="recorded-coverage"></div>
+        </div>
       </section>
       <section class="panel">
         <h2>Scheduled wakes <span class="count" id="wakecount"></span></h2>
@@ -282,7 +305,7 @@ function renderVitals(){
   $('#vitals').innerHTML=`
     <div class="vital ${running?'live':''}"><span class="lbl">Running turns</span><span class="num mono">${running}</span><span class="sub">${running===1?'turn running right now':running?'turns running right now':'no turn is running'}</span></div>
     <div class="vital"><span class="lbl">Wakes queued</span><span class="num mono">${org.wakesPending||0}</span><span class="sub">${next?`next fires <span class="mono">${esc(dueText(next.dueAt))}</span>`:'no scheduled wakes'}</span></div>
-    <div class="vital ${decisions?'alert':''}"><span class="lbl">Needs your ruling</span><span class="num mono">${decisions}</span><span class="sub">${decisions?'decision requests waiting on the operator':'nothing waiting on the operator'}</span></div>
+    <div class="vital ${decisions?'alert':''}"><span class="lbl">Needs your ruling</span><span class="num mono">${decisions}</span><span class="sub">${decisions?'decision requests waiting on the operator':'no open rulings'}</span></div>
     <div class="vital"><span class="lbl">Open items</span><span class="num mono">${open}</span><span class="sub">${data.items.filter(item=>item.state==='open'&&item.sinceProgressMs<86400000).length} touched in the last day</span></div>
     <div class="vital"><span class="lbl">Iceboxed · failed</span><span class="num mono">${iceboxed} <span style="color:var(--muted)">·</span> ${failed}</span><span class="sub">${closed} closed, not shown</span></div>
     <div class="vital"><span class="lbl">Sessions</span><span class="num mono">${sessions.total||0}</span>
@@ -407,6 +430,16 @@ function renderRail(){
   const byKind=sessions.byKind||{}, byHarness=sessions.byHarness||{};
   $('#dr').textContent=requests.length;
   $('#requests').innerHTML=requests.map(request=>`<li><span class="due mono ${request.deadlineAt&&request.deadlineAt-Date.now()<7200000?'soon':''}">${request.deadlineAt?dueText(request.deadlineAt):'no deadline'}</span><span class="who">${esc(request.raiser)}</span><span class="what">${esc(request.question)}</span></li>`).join('');
+  const actions=Array.isArray(org.blockedOnYou)?org.blockedOnYou:[];
+  const recorded=Array.isArray(org.recordedBlockers)?org.recordedBlockers:[];
+  const coverage=org.recordedBlockersCoverage||{total:recorded.length,shown:recorded.length,omitted:0,selection:'selection unavailable'};
+  $('#blockedcount').textContent=`${org.blockedOnYouCount||0} confirmed`;
+  $('#blocked-empty').innerHTML=actions.length
+    ?'<span>Confirmed from standing, operator-resolved ledger records.</span>'
+    :'<span><b>no confirmed actions</b><br>TopLines can confirm an operator action only from a standing operator-resolved block; none is present in this snapshot.</span>';
+  $('#blocked-actions').innerHTML=actions.map(action=>`<li><span class="action">${esc(action.action)}</span><span>${esc(action.project||action.workItemId)}</span><span class="meta">unblocks ${esc(action.unblocks||'not recorded')} · owner ${esc(action.owner||'unknown')} · source ${esc(action.source)} · as of ${esc(formatTime(action.evidenceAt))}</span></li>`).join('');
+  $('#recorded-blockers').innerHTML=recorded.map(blocker=>`<li><details><summary>${esc(blocker.summary)}</summary>${blocker.detail?`<div>${esc(blocker.detail)}</div>`:''}</details><span class="meta">current status unknown · ${esc(blocker.project||blocker.workItemId)} · owner ${esc(blocker.owner||'unknown')} · source ${esc(blocker.source)} · as of ${esc(formatTime(blocker.sourceAt))}</span></li>`).join('')||'<li><span class="meta">No qualifying historical blockers in this snapshot.</span></li>';
+  $('#recorded-coverage').textContent=`shown ${coverage.shown} of ${coverage.total}; omitted ${coverage.omitted} · ${coverage.selection}`;
   $('#wakecount').textContent=`${org.wakesPending||0} pending`;
   $('#wakes').innerHTML=wakes.map(wake=>`<li><span class="due mono ${wake.dueAt-Date.now()<7200000?'soon':''}">${esc(dueText(wake.dueAt))}</span><span class="who">${esc(wake.origin.replace(/^agent:/,''))}</span><span class="what">${esc(wake.prompt)}</span></li>`).join('');
   $('#sesscount').textContent=`${sessions.total||0} active`;
@@ -417,13 +450,21 @@ function renderRail(){
 function renderFooter(){
   const parity=data.parity;
   let parityText='parity not run';
+  let parityState='none';
   if(parity){
-    parityText=`parity ${parity.outcome==='mismatch'?'warning: mismatch':parity.outcome}, ${formatTime(parity.ranAt)} · checked ${parity.checked}`;
+    const attempt=parity.lastAttemptOutcome||parity.outcome;
+    parityState=attempt==='failed'?'failed':parity.outcome==='mismatch'?'mismatch':parity.outcome==='inconclusive'?'inconclusive':parity.overdue?'overdue':parity.outcome||'none';
+    parityText=`latest attempt ${attempt||'unknown'}, ${parity.lastAttemptAt?formatTime(parity.lastAttemptAt):'time unavailable'}`;
+    if(parity.failureReason) parityText+=` · ${parity.failureReason}`;
+    if(parity.lastSuccessAt) parityText+=` · last success ${parity.lastSuccessOutcome}, ${formatTime(parity.lastSuccessAt)}`;
+    else parityText+=' · no successful parity yet';
+    if(parity.overdue) parityText+=' · parity overdue (>36 h since success)';
+    if(parity.ranAt) parityText+=` · latest completed comparison ${parity.outcome}, ${formatTime(parity.ranAt)} · checked ${parity.checked}`;
     if(parity.firstMismatch) parityText+=` · ${parity.firstMismatch}`;
     if(parity.changingInput) parityText+=` · changing input: ${parity.changingInput}`;
     if((parity.atcEvidence||'present')==='missing') parityText+=' · ATC stage evidence unavailable';
   }
-  $('#foot').dataset.parity=parity?parity.outcome:'none';
+  $('#foot').dataset.parity=parityState;
   $('#foot').innerHTML=`<span>${esc(parityText)}</span><span>coverage basis: ${esc(parity&&parity.coverageBasis!=null?parity.coverageBasis:'not available')}</span><span>edge basis: ${esc(parity&&parity.edgeBasis!=null?parity.edgeBasis:'not available')}</span><span>pass ${data.passMs} ms · db ${Math.round(data.footprint.dbBytes/1048576)} MiB · WAL ${Math.round(data.footprint.walBytes/1048576)} MiB</span><span>quiet = time since last activity</span><span>closed items (${data.org.items.closed||0}) omitted; read them with work-item-trace</span>`;
 }
 

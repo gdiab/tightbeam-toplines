@@ -336,7 +336,10 @@ class LiveParitySelectionTest(unittest.TestCase):
             self.assertNotEqual(Path(fields[0]), fixture["ambient"])
             self.assertEqual(fields[1], str(fixture["base"].resolve()))
             self.assertEqual(fields[2:4], ["unset", "unset"])
-            self.assertEqual(fields[4], "toplines --as-user maya")
+            self.assertEqual(
+                fields[4],
+                "execution-map --origin all --state open --as-user maya",
+            )
 
 
 class TimezoneAndEvidenceTest(unittest.TestCase):

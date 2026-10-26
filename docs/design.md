@@ -148,3 +148,28 @@ in `--ink-2`, no icon. Same treatment as the command echo beside the title.
 disagree, the mock wins on appearance and this document wins on tokens and
 encodings, except that **Row hover popup** supersedes the mock's exhaustive,
 unbounded tooltip. Raise any other disagreement on the card.
+
+## Blocked on you
+
+The right rail places a Blocked on you panel beside Needs your ruling. Its
+primary area shows the confirmed count and action cards with project, owner,
+what the action unblocks, source, and an "as of" timestamp. A zero reads "no
+confirmed actions" and explains that confirmation requires a standing,
+operator-resolved ledger block.
+
+Below it, a ruled secondary surface titled "Recorded blockers — action
+ownership unconfirmed" shows compact attributed source text in a native,
+read-only `details` expander. Every entry says "current status unknown" and
+shows source, timestamp, project, and owner where known. Muted styling and copy
+state that this may include agent or infrastructure issues, asserts no operator
+obligation, and is not exhaustive. Total, shown, omitted, and the cap rule are
+visible. This surface has no personal-action badge, urgency color, or write
+control.
+
+## Parity status
+
+The footer separates the newest attempt from the last successful check. Failed
+and overdue states use the alert color; inconclusive uses the waiting color.
+The newest failure reason or completed mismatch remains prominent even when the
+last success is overdue. Snapshot age stays in the independent stale banner and
+never serves as parity evidence.

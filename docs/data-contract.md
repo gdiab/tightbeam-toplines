@@ -30,7 +30,13 @@ from "zero".
     "coverageBasis": "…",               // copied VERBATIM from the CLI response's coverage.basis; the generator never synthesizes it; null until first run
     "edgeBasis": "…",                   // copied VERBATIM from the CLI response's edgeBasis; the generator never synthesizes it; null until first run
     "atcEvidence": "present",           // "present" when local ATC data was read; "missing" when stage comparison was skipped
-    "atcEvidenceReason": null            // named local read/parse failure when atcEvidence="missing"; else null
+    "atcEvidenceReason": null,           // named local read/parse failure when atcEvidence="missing"; else null
+    "lastAttemptAt": 1788339600000,      // newest attempt, completed or failed
+    "lastAttemptOutcome": "ok",          // completed outcome or "failed"
+    "failureReason": null,               // named pre-comparison failure; else null
+    "lastSuccessAt": 1788339600000,      // newest ok / ok-ledger-atc-missing; null until one succeeds
+    "lastSuccessOutcome": "ok",          // success outcome; null until one succeeds
+    "overdue": false                     // generatedAt - lastSuccessAt > 36 h; null before first success
   },
   "org": {
     "runningTurns": 3,                 // all turns.status = 'running' rows in this ledger snapshot, including unattributed rows
@@ -56,6 +62,37 @@ from "zero".
         "workItemId": "wi_…"            // via assignmentId when resolvable, else null
       }
     ],
+    "blockedOnYou": [                   // confirmed standing operator-resolved blocks only
+      {
+        "action": "Upload the signed release receipt",
+        "workItemId": "wi_…",
+        "project": "Release project",
+        "owner": "Coder — release",
+        "unblocks": "Release project",
+        "source": "cp_…",
+        "evidenceAt": 1788300000000,
+        "resolved": false
+      }
+    ],
+    "blockedOnYouCount": 1,             // confirmed entries only
+    "recordedBlockers": [               // settled historical blocks, never personal tasks
+      {
+        "project": "Historical project",
+        "workItemId": "wi_…",
+        "summary": "Attributed source text…",
+        "detail": "Full attributed source text…",
+        "source": "cp_…",
+        "sourceAt": 1788200000000,
+        "owner": null,
+        "status": "unknown"
+      }
+    ],
+    "recordedBlockersCoverage": {
+      "total": 1,
+      "shown": 1,
+      "omitted": 0,
+      "selection": "latest per work item, most-recent first, cap 20; not an exhaustive human-dependency inventory"
+    },
     "wakes": [                          // state = pending, soonest first, at most 20
       {
         "id": "w_…",
@@ -180,6 +217,18 @@ but no generator, watcher, server, or parity process reads it.
     §2 holds the source pin.
 - Unknown harness or model strings pass through as found in `sessions`.
 - The parity block is `null` until the first parity run.
+- `ranAt` through `atcEvidenceReason` describe the newest completed comparison.
+  A failed pre-comparison attempt preserves those fields, updates
+  `lastAttempt*`/`failureReason`, and leaves `lastSuccess*` unchanged. If the
+  first attempt fails, the completed-comparison fields are `null`.
+- `lastSuccess*` advances only for `ok` and `ok-ledger-atc-missing`.
+  `overdue` is recomputed on every generator pass and becomes true after 36
+  hours without a successful comparison. A newer failure, mismatch, or
+  inconclusive attempt remains the primary displayed state.
+- During rollout, a legacy block with a successful top-level `ranAt`/`outcome`
+  and no attempt-history fields is read as both the last attempt and last
+  success. This preserves the deployed success as historical evidence and lets
+  the generator expose its overdue age before the next scheduled run.
 - `ok-ledger-atc-missing` means ledger-versus-CLI parity held while local ATC
   stage evidence was unavailable. It exits successfully but remains visible on
   the page. An ATC URL does not count as local evidence.
