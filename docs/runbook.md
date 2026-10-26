@@ -104,19 +104,19 @@ TIER B (independent reviewer-commit-anchored + installed==pin + redeploy record 
 docs/runbook.md = reviewed 26a3641 base + the R1-reviewed newly-authored install-gate delta -- provenance is reviewed-base + THIS (R1) review, NOT a 26a3641 cryptographic match.
 RESIDUAL: Tier-B installed<->reviewed-commit link is reviewer-anchored + functional, NOT blob-cryptographic. Do NOT cite att#6/att_d117b2c2 or the superseded pre-D19 page sha b39347c8.
 
-CURRENT RELEASE CANDIDATE (wi_06502874): portability R5 across generator, watcher, parity, page and systemd preserves the running-turn headline. Install only after independent review clears the exact candidate commit that contains these pins.
+CURRENT RELEASE CANDIDATE (wi_f9f0bdaf): Blocked on you and truthful 0.1.9 execution-map parity across generator, parity and page preserves portability, the running-turn headline and unchanged service/systemd artifacts. Install only after independent review clears the exact candidate commit that contains these pins.
 ```
 
 Full pin values (the ten gate-verified artifacts):
 
 | Deployed artifact | sha256 |
 |---|---|
-| `bin/tb-toplines-gen` | `355ce9a53dc834aebb7a63e71e49dc6d312b6b1a6b8eb832e4b1244dae4af28b` |
-| `bin/tb-toplines-parity` | `e8a85979b0c06fe5906bac894461327e3eb9460c72d94403a332a12fa9dbdd51` |
+| `bin/tb-toplines-gen` | `dba3b734c12685de4859afaa1138876d8c0a1d7f9971d14039b952b3b867227f` |
+| `bin/tb-toplines-parity` | `da66b7110b45f300eedf5a59ed7fc2c129fe31e2b42413dc0bee66740d96680e` |
 | `bin/tb-toplines-serve` | `81e905f676f45e2a9270292d1fdf23b09fc29fc49ac4041f959de538bcc44182` |
 | `bin/tb-toplines-watch` | `34a4ea6f193bb987275bd02214caf1e132ab4b992b55f097c7f82b75675b26e0` |
 | `bin/tb-toplines-ts` | `cd307aedea5cc010075f3e4355a3c12b26237e3501a56e156784e3ccd554b506` |
-| `web/index.html` | `0ecbb12b43a91f04911288f65c117db201bc91d5f78ded99fe927710472a0579` |
+| `web/index.html` | `01bfe1cad76f5eedeffd4752ae2b45a4a18ae8ec95a2e29cd4f21cebf9f645ee` |
 | `systemd/tb-toplines.service` | `7a8e4a03d6851fb71d9432839662060860088f5a5384575e66cd9831335c5abe` |
 | `systemd/tb-toplines-watch.service` | `e909efac9770a0276d82552499389fa98415167a1164a84c82ad747d17dd329a` |
 | `systemd/tb-toplines-parity.service` | `82fd7d165dc4f1314cbe9c8958ed860cb3f49e26b96f1ded1f0e13f566a86ad8` |
@@ -516,7 +516,11 @@ unaffected by any of this.
 ## When the parity check warns
 
 The page shows the first mismatch. Do not rerun the timer or invoke
-`tightbeam toplines` again that day: parity makes at most one CLI call per day.
+`tightbeam execution-map` again that day: parity makes at most one CLI call per
+day. A failed attempt is written to `web/parity.json` before the service exits;
+the page shows its reason while preserving the last completed comparison and
+last success. A success older than 36 hours is marked overdue. Snapshot
+freshness remains separate and does not prove parity.
 Inspect the named row in `web/toplines.json`, the read-only ledger, and the
 installed CLI source. If the CLI changed a definition for quiet or card counts,
 update the generator query and the matching definition in `docs/spec.md`. If
@@ -548,9 +552,9 @@ an amount close to that run's CLI-to-generator gap (about 124s in the
 observed case), near the daily-run time. That is consistent with a benign
 clock-gap, but does not by itself prove data parity: the page shows only the
 first mismatch, so a real divergence on another row or field can hide behind
-it. To confirm, re-run the comparison writing to a scratch output. Set
-`TB_TOPLINES_PARITY` to a temp path (for example `/tmp/parity-check.json`) so
-the live `web/parity.json` stays untouched, and check every compared field:
+it. To confirm without another CLI call, run the compare-only path against the
+captured response from that attempt, writing to scratch paths with
+`TB_TOPLINES_CLI_JSON` and `TB_TOPLINES_PARITY`. Check every compared field:
 quiet, card counts, and attest totals against the CLI, and stage against
 ATC's data.json (`/opt/tb-atc/web/data.json`). If the only discrepancy is the
 uniform quiet gap, it is benign; if any other field diverges (including stage

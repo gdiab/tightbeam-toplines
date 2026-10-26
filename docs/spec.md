@@ -92,6 +92,11 @@ ruling before implementation.
    no item attribution and counts multiple running rows on one item separately.
    Target pass time under 300 ms on today's ledger (516 MB, 13k turns, 6.7k
    attests).
+   It also projects confirmed Blocked-on-you actions from standing
+   `assignment_cannot_proceed` rows whose resolver is exactly
+   `user:$TB_TOPLINES_OPERATOR`, and a bounded secondary historical disclosure
+   from settled blocker rows on open work. The two sets are disjoint by block
+   state; prose never qualifies a row as a confirmed operator action.
 3. **Page** `web/index.html`. The reviewed mock (`mock/toplines.html`) with
    its inline snapshot replaced by a single-flight fetch of `toplines.json`
    every 2 s and a stale/error banner when `generatedAt` is older than 90 s or
@@ -111,7 +116,8 @@ ruling before implementation.
    `http://127.0.0.1:8898`. Tailnet-only. Mirrors how `tb-atc-ts` is run,
    without touching it.
 6. **Parity check** `bin/tb-toplines-parity` on a daily systemd user timer.
-   Runs `tightbeam toplines --as-user "$TB_TOPLINES_OPERATOR"` exactly once,
+   Runs `tightbeam execution-map --origin all --state open --as-user
+   "$TB_TOPLINES_OPERATOR"` exactly once,
    with no operator fallback, then immediately
    runs the generator and compares each open item's time-since-last-activity
    (`sinceProgressMs`, tolerance 120 s), open and closed card counts and attest totals against
@@ -121,8 +127,9 @@ ruling before implementation.
    `inconclusive` with the changing input named, not `ok` or a mismatch; the
    timer does not make a second CLI call that day. Writes a `parity` block into
    the next `toplines.json` via a sidecar file the generator merges, so the page
-   shows "parity ok, 03:00", an inconclusive notice, or a warning naming the
-   first mismatch. The sidecar also copies
+   shows the latest attempt separately from the last success, including a
+   persisted failed attempt and a 36-hour overdue state, an inconclusive notice,
+   or a warning naming the first mismatch. The sidecar also copies
    `coverage.basis` and `edgeBasis` from that same CLI response and stamps them
    with the parity run time; the generator never synthesizes either value.
 7. **Runbook** `docs/runbook.md` finished: install, start, verify, logs,
@@ -163,6 +170,20 @@ daily parity check, the authority is whatever parity measures against — the CL
 actual algorithm for ledger-derived numbers, and the deployed (parity-target) ATC
 for the stage ladder and holder kind. Where a Term's wording and that authority
 disagree, the authority wins and this Term is corrected to it.
+
+- **Blocked-on-you confirmed entry.** A standing (`state='open'`)
+  `assignment_cannot_proceed` row qualifies only when its assignment resolves to
+  an open work item, `releaseFactPrincipalRef` exactly equals
+  `"user:" + config.operator`, both release-fact coordinates exist, no matching
+  `condition_facts` row exists, `settlementFactId` is null, and its attributed
+  source text states a concrete action. Session keys containing the operator's
+  name do not match. The source prose is displayed only after the structured
+  predicate qualifies the row; it is never used to infer who owns an obligation.
+- **Recorded blocker.** The newest settled blocker per open work item, outside
+  the confirmed count and labeled current status unknown. A matching release
+  fact or non-null `settlementFactId` suppresses the newest row; its older rows
+  remain superseded. Results are newest-first, capped at 20 with total, shown,
+  omitted, and the non-exhaustive selection rule visible.
 
 - **Assignment membership.** An assignment belongs to its non-null
   `workItemId`. Otherwise it belongs to the item resolved through its
@@ -271,7 +292,8 @@ Every line demonstrated on sirius, command and output on the card.
 
 1. `https://toplines.tailf064dc.ts.net/` renders from a tailnet device with no
    external requests (browser network panel: only same-origin).
-2. Capture one fresh `tightbeam toplines --as-user george` response by hand.
+2. Capture one fresh `tightbeam execution-map --origin all --state open
+   --as-user george` response by hand.
    The default open view's item-id set matches the response's open item set
    exactly. For every open item, quiet, card counts, attest totals and kinds,
    and active flags match within the stated tolerance. Holder session keys and
@@ -340,6 +362,28 @@ Every line demonstrated on sirius, command and output on the card.
     Store the screenshots as work-item artifacts and return an index that maps
     each screenshot to these recorded facts. DOM-only simulation and a result
     with no screenshots do not satisfy this criterion.
+13. The live read-only ledger produces zero confirmed Blocked-on-you actions at
+    the recorded cutoff and shows the data limitation explicitly. Historical
+    Stint and AI Tab Groups blockers appear through the general newest-per-item
+    selection, outside the count, with source, time, owner where known, and
+    `status:"unknown"`. Effort requests, agent-resolved standing blocks,
+    answered approvals, resolved/superseded blocks, and closed work do not become
+    confirmed actions. A fixture proves one exact `user:<operator>` standing
+    block appears only in the confirmed list, a lookalike `agent:...operator...`
+    principal does not, and a matching release fact removes it without creating
+    any live obligation. Markup-like historical reason text renders inertly.
+    Opening a historical source remains open across timer ticks and one snapshot
+    refresh when its source id is unchanged; closing it remains closed. A
+    different replacement source never inherits the prior source's expansion.
+14. A captured real 0.1.9 `execution-map` response drives compare-only parity
+    with the existing ID, quiet (±120 s), open/closed assignment, attest-total,
+    and ATC-stage comparisons unchanged. Normal success advances latest attempt
+    and last success. Malformed input records a failed latest attempt while
+    preserving the prior completed comparison and last success. A success older
+    than 36 hours displays overdue; newer failed, mismatch, or inconclusive state
+    stays prominent. The daily claim still permits at most one production CLI
+    call, every ledger handle uses `mode=ro`, and `org.runningTurns` remains the
+    all-ledger count rather than an execution-map value.
 
 ## Fixtures
 

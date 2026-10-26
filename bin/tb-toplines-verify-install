@@ -47,16 +47,17 @@ ROOT_DEFAULT = Path.home() / "tb-toplines"
 # TIER B (independent reviewer-commit-anchored + installed==pin + redeploy record att_b5a53254 + functional; reviewed git-objects reaped => NOT blob-cryptographic): gen->reviewed-clean @6853091 (att_24278bde); web/index.html->reviewed-clean @36a4b4f9 (att_82cde5af); serve+watch->reviewed-clean @8d33eb23 (asg_04c93305); tb-toplines.service+tb-toplines-watch.service->reviewed-clean @8d33eb23 (asg_04c93305).
 # docs/runbook.md = reviewed 26a3641 base + the R1-reviewed newly-authored install-gate delta -- provenance is reviewed-base + THIS (R1) review, NOT a 26a3641 cryptographic match.
 # RESIDUAL: Tier-B installed<->reviewed-commit link is reviewer-anchored + functional, NOT blob-cryptographic. Do NOT cite att#6/att_d117b2c2 or the superseded pre-D19 page sha b39347c8.
-# CURRENT RELEASE CANDIDATE (wi_06502874): portability R5 across generator,
-# watcher, parity, page and systemd, preserving the running-turn headline.
+# CURRENT RELEASE CANDIDATE (wi_f9f0bdaf): Blocked on you and truthful 0.1.9
+# execution-map parity across generator, parity, and page, preserving portability,
+# the running-turn headline, and the unchanged service/systemd artifacts.
 # Install only after independent review clears the exact candidate commit.
 PINS: dict[str, str] = {
-    "bin/tb-toplines-gen": "355ce9a53dc834aebb7a63e71e49dc6d312b6b1a6b8eb832e4b1244dae4af28b",
-    "bin/tb-toplines-parity": "e8a85979b0c06fe5906bac894461327e3eb9460c72d94403a332a12fa9dbdd51",
+    "bin/tb-toplines-gen": "dba3b734c12685de4859afaa1138876d8c0a1d7f9971d14039b952b3b867227f",
+    "bin/tb-toplines-parity": "da66b7110b45f300eedf5a59ed7fc2c129fe31e2b42413dc0bee66740d96680e",
     "bin/tb-toplines-serve": "81e905f676f45e2a9270292d1fdf23b09fc29fc49ac4041f959de538bcc44182",
     "bin/tb-toplines-watch": "34a4ea6f193bb987275bd02214caf1e132ab4b992b55f097c7f82b75675b26e0",
     "bin/tb-toplines-ts": "cd307aedea5cc010075f3e4355a3c12b26237e3501a56e156784e3ccd554b506",
-    "web/index.html": "0ecbb12b43a91f04911288f65c117db201bc91d5f78ded99fe927710472a0579",
+    "web/index.html": "01bfe1cad76f5eedeffd4752ae2b45a4a18ae8ec95a2e29cd4f21cebf9f645ee",
     "systemd/tb-toplines.service": "7a8e4a03d6851fb71d9432839662060860088f5a5384575e66cd9831335c5abe",
     "systemd/tb-toplines-watch.service": "e909efac9770a0276d82552499389fa98415167a1164a84c82ad747d17dd329a",
     "systemd/tb-toplines-parity.service": "82fd7d165dc4f1314cbe9c8958ed860cb3f49e26b96f1ded1f0e13f566a86ad8",

@@ -101,7 +101,7 @@ sequenceDiagram
 | `tb-toplines-serve` | systemd user unit `tb-toplines.service` | Stdlib static server on 127.0.0.1:8898, `no-store` on the JSON. |
 | `web/index.html` | static | One file. Fetches `toplines.json` every 2 s, single flight (a new request starts only after the previous one completes), rows keyed by id. Stale banner past 90 s. Appearance toggle. Link to ATC. |
 | `tb-toplines-ts` | docker container | `tailscale/tailscale`, host network, `TS_USERSPACE=1`, `TS_HOSTNAME=toplines`, named state volume. `tailscale serve --bg https+insecure://127.0.0.1:8898` or the plain-HTTP equivalent, tailnet-only. |
-| `tb-toplines-parity` | systemd user timer, daily | One `tightbeam toplines --as-user george`. Compares quiet, cards and attest totals per open item to the latest `toplines.json`; compares stage per item to ATC's `data.json` read from disk. Writes `parity.json` beside the output for the generator to merge. |
+| `tb-toplines-parity` | systemd user timer, daily | One `tightbeam execution-map --origin all --state open --as-user george`. Compares quiet, cards and attest totals per open item to the latest `toplines.json`; compares stage per item to ATC's `data.json` read from disk. Writes the latest attempt separately from the last success in `parity.json` for the generator to merge. |
 
 ## Why the ledger and not the gateway
 

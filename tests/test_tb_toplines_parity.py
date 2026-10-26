@@ -244,5 +244,93 @@ class DailyGuardTest(unittest.TestCase):
             self.assertEqual(len(attempts), 1)
 
 
+class AttemptRecordingTest(unittest.TestCase):
+    def test_legacy_success_is_preserved_as_last_success(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="toplines-legacy-") as name:
+            path = Path(name) / "parity.json"
+            path.write_text(
+                json.dumps({"ranAt": 123, "outcome": "ok", "checked": 18}),
+                encoding="utf-8",
+            )
+            parity = load_parity()
+            parity.PARITY_PATH = path
+            migrated = parity.previous_parity()
+            self.assertEqual(migrated["lastAttemptAt"], 123)
+            self.assertEqual(migrated["lastAttemptOutcome"], "ok")
+            self.assertEqual(migrated["lastSuccessAt"], 123)
+            self.assertEqual(migrated["lastSuccessOutcome"], "ok")
+
+    def test_malformed_attempt_is_persisted_without_erasing_last_success(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="toplines-attempt-") as name:
+            directory = Path(name)
+            output = directory / "toplines.json"
+            atc = directory / "atc.json"
+            capture = directory / "execution-map.json"
+            parity = directory / "parity.json"
+            item = {
+                "id": "wi_test",
+                "state": "open",
+                "sinceProgressMs": 10,
+                "cards": {"open": 1, "closed": 0},
+                "attests": {"total": 2},
+                "stage": 3,
+            }
+            output.write_text(
+                json.dumps({"generatedAt": 1, "items": [item]}), encoding="utf-8"
+            )
+            atc.write_text(
+                json.dumps({"items": [{"id": "wi_test", "stage": 3}]}),
+                encoding="utf-8",
+            )
+            capture.write_text(
+                json.dumps(
+                    {
+                        "coverage": {"basis": "conservative_shared"},
+                        "edgeBasis": "concurrent_turn",
+                        "items": [
+                            {
+                                "id": "wi_test",
+                                "state": "open",
+                                "sinceProgressMs": 10,
+                                "assignments": {"open": 1, "closed": 0},
+                                "attests": {"total": 2},
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    "TB_TOPLINES_CLI_JSON": str(capture),
+                    "TB_TOPLINES_OUT": str(output),
+                    "TB_TOPLINES_PARITY": str(parity),
+                    "TB_TOPLINES_ATC_DATA": str(atc),
+                }
+            )
+            first = subprocess.run(
+                [sys.executable, str(SCRIPT)], capture_output=True, text=True,
+                env=environment, check=False,
+            )
+            self.assertEqual(first.returncode, 0, first.stderr)
+            success = json.loads(parity.read_text(encoding="utf-8"))
+            self.assertEqual(success["lastAttemptOutcome"], "ok")
+            self.assertEqual(success["lastSuccessAt"], success["lastAttemptAt"])
+
+            capture.write_text(json.dumps({"items": []}), encoding="utf-8")
+            second = subprocess.run(
+                [sys.executable, str(SCRIPT)], capture_output=True, text=True,
+                env=environment, check=False,
+            )
+            self.assertEqual(second.returncode, 2)
+            failed = json.loads(parity.read_text(encoding="utf-8"))
+            self.assertEqual(failed["lastAttemptOutcome"], "failed")
+            self.assertIn("CLI coverage must be a JSON object", failed["failureReason"])
+            self.assertEqual(failed["lastSuccessAt"], success["lastSuccessAt"])
+            self.assertEqual(failed["ranAt"], success["ranAt"])
+            self.assertEqual(failed["outcome"], "ok")
+
+
 if __name__ == "__main__":
     unittest.main()

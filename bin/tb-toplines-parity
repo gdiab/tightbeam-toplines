@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Compare TopLines with its CLI and deployed-ATC authorities.
 
-The production path invokes ``tightbeam toplines --as-user <operator>`` exactly
-once, against the effective ledger's own Tightbeam instance, runs the generator,
+The production path invokes ``tightbeam execution-map --origin all --state open
+--as-user <operator>`` exactly once, against the effective ledger's own Tightbeam instance, runs the generator,
 and compares that fresh snapshot. Tests can set
 TB_TOPLINES_CLI_JSON to a captured real response; that compare-only path never
 invokes Tightbeam or the generator.
@@ -130,7 +130,10 @@ def load_cli(
                 f"cannot create a clean CLI working directory under {clean_cwd}"
             )
         completed = subprocess.run(
-            ["tightbeam", "toplines", "--as-user", operator],
+            [
+                "tightbeam", "execution-map", "--origin", "all",
+                "--state", "open", "--as-user", operator,
+            ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -139,12 +142,14 @@ def load_cli(
         )
     if completed.returncode != 0:
         detail = completed.stderr.strip() or f"exit {completed.returncode}"
-        raise RuntimeError(f"tightbeam toplines failed: {detail}")
+        raise RuntimeError(f"tightbeam execution-map failed: {detail}")
     try:
         value = json.loads(completed.stdout)
     except json.JSONDecodeError as error:
-        raise RuntimeError(f"tightbeam toplines returned invalid JSON: {error}") from error
-    return require_mapping(value, "tightbeam toplines response"), False
+        raise RuntimeError(
+            f"tightbeam execution-map returned invalid JSON: {error}"
+        ) from error
+    return require_mapping(value, "tightbeam execution-map response"), False
 
 
 def run_generator() -> None:
@@ -333,7 +338,7 @@ def first_mismatch(
     for item_id in sorted(cli_ids - top_ids):
         return f"{item_id}: missing from toplines.json"
     for item_id in sorted(top_ids - cli_ids):
-        return f"{item_id}: missing from tightbeam toplines open items"
+        return f"{item_id}: missing from tightbeam execution-map open items"
 
     for item_id in sorted(cli_ids):
         cli_row = cli_items[item_id]
@@ -407,10 +412,73 @@ def classify_outcome(
     return "ok", None
 
 
+COMPARISON_FIELDS = (
+    "ranAt", "outcome", "checked", "firstMismatch", "changingInput",
+    "coverageBasis", "edgeBasis", "atcEvidence", "atcEvidenceReason",
+)
+SUCCESS_OUTCOMES = {"ok", "ok-ledger-atc-missing"}
+
+
+def previous_parity() -> dict[str, Any]:
+    try:
+        value = read_json(PARITY_PATH, "prior parity")
+    except RuntimeError:
+        return {}
+    if not isinstance(value, dict):
+        return {}
+    if value.get("lastAttemptAt") is None and isinstance(value.get("ranAt"), int):
+        value["lastAttemptAt"] = value["ranAt"]
+        value["lastAttemptOutcome"] = value.get("outcome")
+        value["failureReason"] = None
+    if (
+        value.get("lastSuccessAt") is None
+        and value.get("outcome") in SUCCESS_OUTCOMES
+        and isinstance(value.get("ranAt"), int)
+    ):
+        value["lastSuccessAt"] = value["ranAt"]
+        value["lastSuccessOutcome"] = value["outcome"]
+    return value
+
+
+def attempt_record(
+    ran_at: int,
+    outcome: str,
+    comparison: dict[str, Any] | None = None,
+    failure_reason: str | None = None,
+) -> dict[str, Any]:
+    prior = previous_parity()
+    result = {
+        field: prior.get(field) for field in COMPARISON_FIELDS
+    }
+    if comparison is not None:
+        result.update(comparison)
+    result.update(
+        {
+            "lastAttemptAt": ran_at,
+            "lastAttemptOutcome": outcome,
+            "failureReason": failure_reason,
+            "lastSuccessAt": prior.get("lastSuccessAt"),
+            "lastSuccessOutcome": prior.get("lastSuccessOutcome"),
+            "overdue": prior.get("overdue"),
+        }
+    )
+    if outcome in SUCCESS_OUTCOMES:
+        result["lastSuccessAt"] = ran_at
+        result["lastSuccessOutcome"] = outcome
+        result["overdue"] = False
+    return result
+
+
+def persist_failed_attempt(ran_at: int, error: BaseException) -> None:
+    parity = attempt_record(ran_at, "failed", failure_reason=str(error))
+    atomic_write(PARITY_PATH, parity)
+
+
 def main() -> int:
     compare_only = CLI_CAPTURE is not None
+    # Validate production identity/base binding before claiming the daily attempt;
+    # a configuration refusal is not a CLI attempt and must not consume the day.
     cli_context = None if compare_only else live_cli_context()
-    before_states = {} if compare_only else item_states()
     ran_at = time.time_ns() // 1_000_000
     if not compare_only:
         attempt_path = claim_daily_attempt(ran_at)
@@ -420,68 +488,70 @@ def main() -> int:
                 f"recorded at {daily_attempt_path(ran_at)}"
             )
             return 0
-    cli, compare_only = load_cli(cli_context)
-    if not compare_only:
-        run_generator()
-
-    top = require_mapping(read_json(OUT_PATH, "TopLines snapshot"), "TopLines snapshot")
-    atc_reason = None
     try:
-        atc = require_mapping(read_json(ATC_PATH, "ATC data"), "ATC data")
-    except RuntimeError as error:
-        atc = None
-        atc_reason = str(error)
+        before_states = {} if compare_only else item_states()
+        cli, compare_only = load_cli(cli_context)
+        if not compare_only:
+            run_generator()
 
-    coverage = require_mapping(cli.get("coverage"), "CLI coverage")
-    coverage_basis = coverage.get("basis")
-    edge_basis = cli.get("edgeBasis")
-    if not isinstance(coverage_basis, str) or not isinstance(edge_basis, str):
-        raise RuntimeError("CLI coverage.basis and edgeBasis must be strings")
+        top = require_mapping(read_json(OUT_PATH, "TopLines snapshot"), "TopLines snapshot")
+        atc_reason = None
+        try:
+            atc = require_mapping(read_json(ATC_PATH, "ATC data"), "ATC data")
+        except RuntimeError as error:
+            atc = None
+            atc_reason = str(error)
 
-    cli_rows = rows_by_id(cli.get("items"), "CLI items")
-    cli_open = {
-        item_id: row for item_id, row in cli_rows.items() if row.get("state") == "open"
-    }
-    top_rows = rows_by_id(top.get("items"), "TopLines items")
-    top_open = {
-        item_id: row for item_id, row in top_rows.items() if row.get("state") == "open"
-    }
-    atc_rows = None if atc is None else rows_by_id(atc.get("items"), "ATC items")
+        coverage = require_mapping(cli.get("coverage"), "CLI coverage")
+        coverage_basis = coverage.get("basis")
+        edge_basis = cli.get("edgeBasis")
+        if not isinstance(coverage_basis, str) or not isinstance(edge_basis, str):
+            raise RuntimeError("CLI coverage.basis and edgeBasis must be strings")
 
-    changed = None
-    if not compare_only:
-        snapshot_ms = top.get("generatedAt")
-        if not isinstance(snapshot_ms, int):
-            raise RuntimeError("TopLines generatedAt must be an integer")
-        compared_ids = set(cli_open) | set(top_open)
-        snapshot_states = {
-            item_id: top_rows.get(item_id, {}).get("state") for item_id in compared_ids
+        cli_rows = rows_by_id(cli.get("items"), "CLI items")
+        cli_open = {
+            item_id: row for item_id, row in cli_rows.items() if row.get("state") == "open"
         }
-        changed = changing_input(
-            compared_ids,
-            ran_at,
-            snapshot_ms,
-            before_states,
-            snapshot_states,
-        )
+        top_rows = rows_by_id(top.get("items"), "TopLines items")
+        top_open = {
+            item_id: row for item_id, row in top_rows.items() if row.get("state") == "open"
+        }
+        atc_rows = None if atc is None else rows_by_id(atc.get("items"), "ATC items")
 
-    mismatch = first_mismatch(cli_open, top_open, atc_rows)
-    outcome, mismatch = classify_outcome(changed, mismatch, atc is not None)
+        changed = None
+        if not compare_only:
+            snapshot_ms = top.get("generatedAt")
+            if not isinstance(snapshot_ms, int):
+                raise RuntimeError("TopLines generatedAt must be an integer")
+            compared_ids = set(cli_open) | set(top_open)
+            snapshot_states = {
+                item_id: top_rows.get(item_id, {}).get("state") for item_id in compared_ids
+            }
+            changed = changing_input(
+                compared_ids, ran_at, snapshot_ms, before_states, snapshot_states,
+            )
 
-    parity = {
-        "ranAt": ran_at,
-        "outcome": outcome,
-        "checked": len(set(cli_open) & set(top_open)),
-        "firstMismatch": mismatch,
-        "changingInput": changed,
-        "coverageBasis": coverage_basis,
-        "edgeBasis": edge_basis,
-        "atcEvidence": "present" if atc is not None else "missing",
-        "atcEvidenceReason": atc_reason,
-    }
-    atomic_write(PARITY_PATH, parity)
-    print(json.dumps(parity, ensure_ascii=False, separators=(",", ":")))
-    return 0 if outcome in {"ok", "ok-ledger-atc-missing"} else 1
+        mismatch = first_mismatch(cli_open, top_open, atc_rows)
+        outcome, mismatch = classify_outcome(changed, mismatch, atc is not None)
+
+        comparison = {
+            "ranAt": ran_at,
+            "outcome": outcome,
+            "checked": len(set(cli_open) & set(top_open)),
+            "firstMismatch": mismatch,
+            "changingInput": changed,
+            "coverageBasis": coverage_basis,
+            "edgeBasis": edge_basis,
+            "atcEvidence": "present" if atc is not None else "missing",
+            "atcEvidenceReason": atc_reason,
+        }
+        parity = attempt_record(ran_at, outcome, comparison)
+        atomic_write(PARITY_PATH, parity)
+        print(json.dumps(parity, ensure_ascii=False, separators=(",", ":")))
+        return 0 if outcome in SUCCESS_OUTCOMES else 1
+    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+        persist_failed_attempt(ran_at, error)
+        raise
 
 
 if __name__ == "__main__":
