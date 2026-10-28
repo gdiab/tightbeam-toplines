@@ -36,12 +36,11 @@ parity resolve it identically and open it with `file:...?mode=ro`. Port
 
 ## Landing this to `main` (`dr_b1b03664`)
 
-No session on sirius currently holds GitHub write: `gh` is unauthenticated and
-the origin is `https`. The PR is prepared locally on its branch; the final push
-and merge to `main` are performed by a designated write-capable session (the
-operator/ops session), NOT by the coders or the orchestrator. GitHub `main` is
-still merge-gated (`dr_b1b03664`) and does not yet carry the reviewed code, so
-the canonical Install below cannot run until that merge lands.
+Land through a pull request to canonical `gdiab/tightbeam-toplines` `main`.
+The integrator verifies the reviewed head against the merged pull request and
+records the merge commit. Install from that canonical commit only after
+independent review covers the exact integrated release commit. The earlier
+unauthenticated-GitHub note described the initial release and is historical.
 
 ## Install sources
 
@@ -104,14 +103,14 @@ TIER B (independent reviewer-commit-anchored + installed==pin + redeploy record 
 docs/runbook.md = reviewed 26a3641 base + the R1-reviewed newly-authored install-gate delta -- provenance is reviewed-base + THIS (R1) review, NOT a 26a3641 cryptographic match.
 RESIDUAL: Tier-B installed<->reviewed-commit link is reviewer-anchored + functional, NOT blob-cryptographic. Do NOT cite att#6/att_d117b2c2 or the superseded pre-D19 page sha b39347c8.
 
-CURRENT RELEASE CANDIDATE (wi_f9f0bdaf): Blocked on you and truthful 0.1.9 execution-map parity across generator, parity and page preserves portability, the running-turn headline and unchanged service/systemd artifacts. Install only after independent review clears the exact candidate commit that contains these pins.
+CURRENT RELEASE CANDIDATE (wi_0784721b): The generator recognizes standing operator blocks and matches release facts by principal. The generator pin below is the reviewed code at ab3c15c2; the other deployed artifacts retain their prior pins. Install only after independent review covers the exact candidate commit containing this pin and the matching runbook.
 ```
 
 Full pin values (the ten gate-verified artifacts):
 
 | Deployed artifact | sha256 |
 |---|---|
-| `bin/tb-toplines-gen` | `dba3b734c12685de4859afaa1138876d8c0a1d7f9971d14039b952b3b867227f` |
+| `bin/tb-toplines-gen` | `6c3c49aab608650da0701ec7672d207a14f894ee4b642ff4beaaa56e5267678a` |
 | `bin/tb-toplines-parity` | `da66b7110b45f300eedf5a59ed7fc2c129fe31e2b42413dc0bee66740d96680e` |
 | `bin/tb-toplines-serve` | `81e905f676f45e2a9270292d1fdf23b09fc29fc49ac4041f959de538bcc44182` |
 | `bin/tb-toplines-watch` | `34a4ea6f193bb987275bd02214caf1e132ab4b992b55f097c7f82b75675b26e0` |
