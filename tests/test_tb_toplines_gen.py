@@ -59,12 +59,14 @@ class RunningTurnCountTest(unittest.TestCase):
                   decisionRequestId TEXT, decisionWakeId TEXT, openerRef TEXT,
                   disposerRef TEXT, reason TEXT, releaseFactKind TEXT,
                   releaseFactScope TEXT, releaseFactPrincipalRef TEXT,
-                  state TEXT NOT NULL, createdAt INTEGER NOT NULL, settledAt INTEGER,
+                  state TEXT NOT NULL CHECK(state IN ('standing', 'settled')),
+                  createdAt INTEGER NOT NULL, settledAt INTEGER,
                   settlementKind TEXT, settlementFactId TEXT, settledBy TEXT
                 );
                 CREATE TABLE condition_facts (
-                  id TEXT PRIMARY KEY, kind TEXT NOT NULL, scope TEXT NOT NULL,
-                  ts INTEGER NOT NULL, ownerUserId TEXT, payload TEXT
+                  id INTEGER PRIMARY KEY, ts INTEGER NOT NULL,
+                  kind TEXT NOT NULL, scope TEXT, origin TEXT NOT NULL,
+                  ownerUserId TEXT, payload TEXT
                 );
                 CREATE TABLE causal_events_epoch (id INTEGER PRIMARY KEY, at INTEGER NOT NULL);
                 CREATE TABLE causal_events (
@@ -166,7 +168,7 @@ class RunningTurnCountTest(unittest.TestCase):
             },
         )
 
-    def test_confirmed_action_requires_exact_user_principal_and_drops_on_fact(self) -> None:
+    def test_confirmed_action_requires_exact_user_principal_and_release_origin(self) -> None:
         with sqlite3.connect(self.db_path) as connection:
             connection.executescript(
                 """
@@ -181,7 +183,7 @@ class RunningTurnCountTest(unittest.TestCase):
                 ) VALUES (
                   'cp_confirm', 'asg_confirm', 'att_confirm',
                   'Upload the signed release receipt', 'release.receipt',
-                  'wi_confirm', 'user:george', 'open', 500
+                  'wi_confirm', 'user:george', 'standing', 500
                 );
                 INSERT INTO assignment_cannot_proceed (
                   id, assignmentId, attestId, reason, releaseFactKind,
@@ -189,7 +191,7 @@ class RunningTurnCountTest(unittest.TestCase):
                 ) VALUES (
                   'cp_session', 'asg_test', 'att_session',
                   'Agent owned', 'agent.ready', 'wi_test',
-                  'agent:main:clawline:george:main s_test', 'open', 501
+                  'agent:main:clawline:george:main s_test', 'standing', 501
                 );
                 """
             )
@@ -201,11 +203,92 @@ class RunningTurnCountTest(unittest.TestCase):
 
         with sqlite3.connect(self.db_path) as connection:
             connection.execute(
-                "INSERT INTO condition_facts VALUES (?, ?, ?, ?, ?, ?)",
-                ("fact_release", "release.receipt", "wi_confirm", 600, "george", "{}"),
+                "INSERT INTO condition_facts VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    1, 600, "release.receipt", "wi_confirm",
+                    "agent:unrelated-role", "george", "{}",
+                ),
+            )
+        org = self.generate(TB_TOPLINES_OPERATOR="george")["org"]
+        self.assertEqual(org["blockedOnYouCount"], 1)
+        self.assertEqual(org["blockedOnYou"][0]["source"], "cp_confirm")
+
+        with sqlite3.connect(self.db_path) as connection:
+            connection.execute(
+                "INSERT INTO condition_facts VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    2, 601, "release.receipt", "wi_confirm",
+                    "user:george", "george", "{}",
+                ),
             )
         org = self.generate(TB_TOPLINES_OPERATOR="george")["org"]
         self.assertEqual(org["blockedOnYouCount"], 0)
+
+    def test_disposed_block_requires_principal_matched_release_origin(self) -> None:
+        with sqlite3.connect(self.db_path) as connection:
+            connection.executescript(
+                """
+                INSERT INTO assignment_cannot_proceed (
+                  id, assignmentId, attestId, reason, releaseFactKind,
+                  releaseFactScope, releaseFactPrincipalRef, state, createdAt,
+                  settledAt, settlementKind
+                ) VALUES (
+                  'cp_disposed', 'asg_test', 'att_disposed', 'Disposed source',
+                  'release.receipt', 'wi_test', 'user:george', 'settled',
+                  500, 550, 'disposed'
+                );
+                INSERT INTO condition_facts VALUES (
+                  1, 600, 'release.receipt', 'wi_test',
+                  'process:tightbeam', 'george', '{}'
+                );
+                INSERT INTO condition_facts VALUES (
+                  2, 601, 'release.receipt', 'wi_test',
+                  'agent:unrelated-role', 'george', '{}'
+                );
+                """
+            )
+
+        org = self.generate(TB_TOPLINES_OPERATOR="george")["org"]
+        self.assertEqual(org["blockedOnYouCount"], 0)
+        self.assertEqual(
+            [blocker["source"] for blocker in org["recordedBlockers"]],
+            ["cp_disposed"],
+        )
+
+        with sqlite3.connect(self.db_path) as connection:
+            connection.execute(
+                "INSERT INTO condition_facts VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    3, 602, "release.receipt", "wi_test",
+                    "user:george", "george", "{}",
+                ),
+            )
+        org = self.generate(TB_TOPLINES_OPERATOR="george")["org"]
+        self.assertEqual(org["recordedBlockers"], [])
+
+    def test_principal_matched_release_settlement_is_fully_resolved(self) -> None:
+        with sqlite3.connect(self.db_path) as connection:
+            connection.executescript(
+                """
+                INSERT INTO condition_facts VALUES (
+                  1, 600, 'release.receipt', 'wi_test',
+                  'user:george', 'george', '{}'
+                );
+                INSERT INTO assignment_cannot_proceed (
+                  id, assignmentId, attestId, reason, releaseFactKind,
+                  releaseFactScope, releaseFactPrincipalRef, state, createdAt,
+                  settledAt, settlementKind, settlementFactId
+                ) VALUES (
+                  'cp_released', 'asg_test', 'att_released', 'Released source',
+                  'release.receipt', 'wi_test', 'user:george', 'settled',
+                  500, 600, 'release-fact', 1
+                );
+                """
+            )
+
+        org = self.generate(TB_TOPLINES_OPERATOR="george")["org"]
+        self.assertEqual(org["blockedOnYouCount"], 0)
+        self.assertEqual(org["recordedBlockers"], [])
 
     def test_settled_block_is_secondary_historical_and_newest_wins(self) -> None:
         with sqlite3.connect(self.db_path) as connection:
@@ -289,12 +372,13 @@ class RunningTurnCountTest(unittest.TestCase):
                 )
             connection.execute(
                 """UPDATE assignment_cannot_proceed
-                   SET releaseFactKind='resolved.kind', releaseFactScope='wi_hist_21'
+                   SET releaseFactKind='resolved.kind', releaseFactScope='wi_hist_21',
+                       releaseFactPrincipalRef='user:george'
                    WHERE id='cp_hist_21'"""
             )
             connection.execute(
-                "INSERT INTO condition_facts VALUES (?, ?, ?, ?, ?, ?)",
-                ("fact_hist", "resolved.kind", "wi_hist_21", 4_000, "george", "{}"),
+                "INSERT INTO condition_facts VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (1, 4_000, "resolved.kind", "wi_hist_21", "user:george", "george", "{}"),
             )
 
         coverage = self.generate(TB_TOPLINES_OPERATOR="george")["org"][

@@ -260,7 +260,7 @@ def read_ledger(
            ORDER BY createdAt DESC, id DESC"""
     ).fetchall()
     condition_facts = connection.execute(
-        "SELECT kind, scope FROM condition_facts"
+        "SELECT kind, scope, origin FROM condition_facts"
     ).fetchall()
     causal_cutoff = connection.execute(
         "SELECT at FROM causal_events_epoch WHERE id=0"
@@ -291,7 +291,9 @@ def read_ledger(
     session_by_key = {row["sessionKey"]: row for row in sessions}
     pending_prompt_sessions = {row["sessionKey"] for row in wakes}
     dispositions_by_item = rows_by_key(dispositions, "jobRef")
-    release_facts = {(row["kind"], row["scope"]) for row in condition_facts}
+    release_facts = {
+        (row["kind"], row["scope"], row["origin"]) for row in condition_facts
+    }
 
     def current_owner(work_item_id: str) -> str | None:
         owners: list[str] = []
@@ -313,11 +315,15 @@ def read_ledger(
     for block in cannot_proceed:
         work_item_id = resolved.get(block["assignmentId"])
         work_item = item_by_id.get(work_item_id)
-        release = (block["releaseFactKind"], block["releaseFactScope"])
+        release = (
+            block["releaseFactKind"],
+            block["releaseFactScope"],
+            block["releaseFactPrincipalRef"],
+        )
         reason = block["reason"]
         if not (
             expected_principal
-            and block["state"] == "open"
+            and block["state"] == "standing"
             and block["releaseFactPrincipalRef"] == expected_principal
             and work_item is not None
             and work_item["state"] == "open"
@@ -355,7 +361,11 @@ def read_ledger(
             continue
         # Older blocks are superseded even when the newest block is resolved.
         seen_recorded_items.add(work_item_id)
-        release = (block["releaseFactKind"], block["releaseFactScope"])
+        release = (
+            block["releaseFactKind"],
+            block["releaseFactScope"],
+            block["releaseFactPrincipalRef"],
+        )
         if block["settlementFactId"] is not None or (
             all(release) and release in release_facts
         ):
